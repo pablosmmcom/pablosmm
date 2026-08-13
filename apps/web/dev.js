@@ -2,8 +2,8 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-// Use the CJS build of Less directly (the CLI binary is broken with "type":"module")
-const less = require('less/dist/less-node.cjs');
+// Use Less directly (Less 4 no longer ships `less/dist/less-node.cjs`)
+const less = require('less');
 
 const lessPath = path.join(__dirname, 'app', 'style.less');
 const cssPath  = path.join(__dirname, 'app', 'style.css');

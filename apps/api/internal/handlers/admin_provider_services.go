@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -45,10 +46,24 @@ func (h *Handler) GetRawProviderServices(w http.ResponseWriter, r *http.Request)
 
 	type RawWithProvider struct {
 		smm.PanelV2Service
-		ProviderKey string `json:"providerKey"`
+		ProviderKey string   `json:"providerKey"`
+		Tags        []string `json:"tags,omitempty"`
 	}
 
 	var allRaw []RawWithProvider
+
+	overridesMap := make(map[string][]string)
+	rows, err := h.db.Pool.Query(context.Background(), "SELECT source_service_id, tags FROM service_overrides")
+	if err == nil {
+		for rows.Next() {
+			var sid string
+			var tags []string
+			if err := rows.Scan(&sid, &tags); err == nil {
+				overridesMap[sid] = tags
+			}
+		}
+		rows.Close()
+	}
 
 	for _, target := range targets {
 		if target.ApiUrl == "" || target.ApiKey == "" {
@@ -72,9 +87,16 @@ func (h *Handler) GetRawProviderServices(w http.ResponseWriter, r *http.Request)
 		var rawServices []smm.PanelV2Service
 		if err := json.NewDecoder(resp.Body).Decode(&rawServices); err == nil {
 			for _, raw := range rawServices {
+				fullID := target.Key + ":" + fmt.Sprint(raw.Service)
+				tags := overridesMap[fullID]
+				if tags == nil {
+					tags = overridesMap[fmt.Sprint(raw.Service)]
+				}
+
 				allRaw = append(allRaw, RawWithProvider{
 					PanelV2Service: raw,
 					ProviderKey:    target.Key,
+					Tags:           tags,
 				})
 			}
 		}

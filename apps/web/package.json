@@ -9,7 +9,7 @@
     "lint": "eslint",
     "watch:less": "npx less-watch-compiler app app style.less",
     "autowatch:less": "node scripts/less-watch.js",
-    "build:less": "node -e \"const fs=require('fs'),path=require('path'),less=require('less/dist/less-node.cjs');const f=path.join('app','style.less');less.render(fs.readFileSync(f,'utf8'),{filename:f,paths:['app']}).then(o=>fs.writeFileSync(path.join('app','style.css'),o.css)).catch(e=>{console.error(e);process.exit(1)})\""
+    "build:less": "node -e \"const fs=require('fs'),path=require('path'),less=require('less');const f=path.join('app','style.less');less.render(fs.readFileSync(f,'utf8'),{filename:f,paths:['app']}).then(o=>fs.writeFileSync(path.join('app','style.css'),o.css)).catch(e=>{console.error(e);process.exit(1)})\""
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

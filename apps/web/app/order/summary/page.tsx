@@ -119,10 +119,27 @@ function matchesVariantFilter(s: NormalizedSmmService, variant: string): boolean
   return s.variant === variant || text.includes(v);
 }
 
+function getAdminBadge(s: any): string | undefined {
+  if (!s) return undefined;
+  if (s.badge) return s.badge;
+  if (s.tags && Array.isArray(s.tags)) {
+    const t = s.tags.find((x: string) => x.startsWith("badge:"));
+    if (t) return t.replace("badge:", "");
+  }
+  return undefined;
+}
+
 function computeBestRatedScore(s: any): number {
   if (!s) return 0;
   const { tags, drop, refill, speed } = getServiceTags(s);
   let score = 0;
+
+  // 0. Admin Badge Override Bonus
+  const adminBadge = getAdminBadge(s);
+  if (adminBadge === 'recommended') score += 100;
+  else if (adminBadge === 'best') score += 90;
+  else if (adminBadge === 'premium') score += 80;
+  else if (adminBadge === 'cheapest') score += 30;
 
   // 1. Drop / Stability Score
   if (drop === 'Non Drop') score += 50;
@@ -256,27 +273,39 @@ const SummaryContent = () => {
 
     const searched = list;
 
-    // Pre-calculate prices and percentiles for relative filtering
-    const sortedPrices = [...searched].map(s => s.ratePer1000).sort((a, b) => a - b);
-    const p33 = sortedPrices[Math.floor(sortedPrices.length * 0.33)] ?? 0;
-    const p66 = sortedPrices[Math.floor(sortedPrices.length * 0.66)] ?? Infinity;
+    // Pre-calculate prices and percentiles globally on baseList (entire category for platform/service, not sub-filtered subset)
+    const basePrices = (baseList || []).map(s => s.ratePer1000).sort((a, b) => a - b);
+    const baseP33 = basePrices[Math.floor(basePrices.length * 0.33)] ?? 0;
+    const baseP66 = basePrices[Math.floor(basePrices.length * 0.66)] ?? Infinity;
 
     if (category === 'cheapest') {
-      const cheapList = searched.filter(s => searched.length <= 3 || s.ratePer1000 <= p33);
-      return cheapList.sort((a, b) => a.ratePer1000 - b.ratePer1000);
+      const cheapList = searched.filter(s => {
+        const badge = getAdminBadge(s);
+        if (badge === 'cheapest') return true;
+        if (badge === 'premium' || badge === 'recommended') return false; // Exclude premium/recommended from cheapest view
+        return s.ratePer1000 <= baseP33 || basePrices.length <= 3;
+      });
+      const result = cheapList.length > 0 ? cheapList : searched.filter(s => getAdminBadge(s) !== 'premium');
+      return result.sort((a, b) => a.ratePer1000 - b.ratePer1000);
     }
 
     if (category === 'premium') {
       const premiumList = searched.filter(s => {
-        if (searched.length <= 3) return true;
+        const badge = getAdminBadge(s);
+        // STRICT RULE 1: Never display a service badged as "Cheapest" inside the Premium tab!
+        if (badge === 'cheapest') return false;
+        
+        // Explicit admin premium badge always passes
+        if (badge === 'premium') return true;
+
         const { tags } = getServiceTags(s);
         const tagList = tags || [];
-        const isBest = tagList.find(t => t.type === 'drop')?.label === 'Non Drop' || tagList.find(t => t.type === 'refill')?.label !== 'No Refill';
-        const isCostly = s.ratePer1000 >= p66;
-        return isCostly && isBest;
+        const isStable = tagList.find(t => t.type === 'drop')?.label === 'Non Drop' || tagList.find(t => t.type === 'refill')?.label !== 'No Refill';
+        const isCostly = s.ratePer1000 >= baseP66;
+        return isCostly && isStable;
       });
-      const finalPremium = premiumList.length > 0 ? premiumList : searched.filter(s => s.ratePer1000 >= p66);
-      return (finalPremium.length > 0 ? finalPremium : searched).sort((a, b) => b.ratePer1000 - a.ratePer1000);
+      
+      return premiumList.sort((a, b) => b.ratePer1000 - a.ratePer1000);
     }
 
     // Best Rated (recommended): Filter out High Drop / No Refill / Unstable services if better ones exist
@@ -762,10 +791,10 @@ const SummaryContent = () => {
             {groupedFiltered.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '36px 20px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '16px', border: '1px dashed rgba(255, 255, 255, 0.15)', margin: '16px 0' }}>
                 <p style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600, margin: '0 0 6px 0' }}>
-                  No services available for quantity of {quantity.toLocaleString()}
+                  No {category === 'premium' ? 'Premium ' : category === 'cheapest' ? 'Cheapest ' : ''}services matching selected criteria
                 </p>
                 <p style={{ color: '#888888', fontSize: '12px', margin: 0 }}>
-                  Try dragging the quantity slider to a lower amount to view available packages.
+                  Try clearing quick filters or switching to "Best Rated" to view available packages.
                 </p>
               </div>
             ) : (

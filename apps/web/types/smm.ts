@@ -34,6 +34,7 @@ export interface NormalizedSmmService {
 	targeting?: string;
 	quality?: string;
 	stability?: string;
+	badge?: string;
 	tags?: string[];
 	description?: string;
 	isHidden?: boolean;

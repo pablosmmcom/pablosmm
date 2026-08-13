@@ -76,10 +76,29 @@ export function CatalogWrapper({
 
     if (selectedProviderKey === "pablosmm") {
       const pablosmmServices = initialCatalogServices.map((cs: any) => {
-        // Find matching raw provider service to enrich details like average_time and desc if available
-        const rawMatch = rawProviderServices.find((r: any) => 
-          String(r.service || r.sourceServiceId || r.id || "").includes(String(cs.provider_service_id))
-        );
+        // Find matching raw provider service to enrich details like average_time, desc, badge & stability
+        const rawMatch = rawProviderServices.find((r: any) => {
+          const rId = String(r.sourceServiceId || r.service || r.id || "").includes(":")
+            ? String(r.sourceServiceId || r.service || r.id || "").split(":")[1]
+            : String(r.sourceServiceId || r.service || r.id || "");
+          const csId = String(cs.provider_service_id || cs.id).includes(":")
+            ? String(cs.provider_service_id || cs.id).split(":")[1]
+            : String(cs.provider_service_id || cs.id);
+          return rId === csId;
+        });
+
+        // Parse tag-encoded fields from rawMatch.tags
+        const rawTags: string[] = rawMatch?.tags || [];
+        let parsedBadge = "auto";
+        let parsedStability = "auto";
+        let parsedQuality = "High Quality";
+        let parsedRefillTag: string | undefined = undefined;
+        for (const t of rawTags) {
+          if (t.startsWith("badge:")) parsedBadge = t.replace("badge:", "");
+          if (t.startsWith("stability:")) parsedStability = t.replace("stability:", "");
+          if (t.startsWith("quality:")) parsedQuality = t.replace("quality:", "");
+          if (t.startsWith("refill:")) parsedRefillTag = t.replace("refill:", "");
+        }
 
         return {
           id: String(cs.provider_service_id || cs.id),
@@ -99,25 +118,52 @@ export function CatalogWrapper({
           refill: rawMatch?.refill !== undefined ? rawMatch.refill : true,
           cancel: rawMatch?.cancel !== undefined ? rawMatch.cancel : true,
           status: cs.is_active ? "active" : "hidden",
-          quality: rawMatch?.quality || "High Quality",
-          refillTag: cs.variant_name || "30 Days",
+          quality: parsedQuality,
+          stability: parsedStability,
+          badge: parsedBadge,
+          refillTag: parsedRefillTag,
           average_time: rawMatch?.average_time ?? rawMatch?.averageTime,
           averageTime: rawMatch?.averageTime ?? rawMatch?.average_time,
           desc: rawMatch?.desc || rawMatch?.description || "",
           description: rawMatch?.description || rawMatch?.desc || "",
           tags: [
             `variant_name:${cs.variant_name || "Default"}`,
-            `sell_price_inr:${cs.sell_price_inr || 0}`
+            `sell_price_inr:${cs.sell_price_inr || 0}`,
+            ...rawTags
           ]
         };
       });
       return pablosmmServices.filter((s: any) => !isHiddenCategory(s.category));
     }
     
-    return rawProviderServices.filter((s: any) => 
-      s.providerKey === selectedProviderKey && 
-      !isHiddenCategory(s.rawProviderCategory || s.providerCategory || s.category)
-    );
+    return rawProviderServices
+      .filter((s: any) => 
+        s.providerKey === selectedProviderKey && 
+        !isHiddenCategory(s.rawProviderCategory || s.providerCategory || s.category)
+      )
+      .map((svc: any) => {
+        const rawTags: string[] = svc.tags || [];
+        let parsedBadge = (svc as any).badge || "auto";
+        let parsedStability = (svc as any).stability || "auto";
+        let parsedQuality = (svc as any).quality || "High Quality";
+        let parsedRefillTag: string | undefined = (svc as any).refillTag;
+
+        for (const t of rawTags) {
+          if (t.startsWith("badge:")) parsedBadge = t.replace("badge:", "");
+          if (t.startsWith("stability:")) parsedStability = t.replace("stability:", "");
+          if (t.startsWith("quality:")) parsedQuality = t.replace("quality:", "");
+          if (t.startsWith("refill:")) parsedRefillTag = t.replace("refill:", "");
+          if (t.startsWith("proposed_refill:")) parsedRefillTag = t.replace("proposed_refill:", "");
+        }
+
+        return {
+          ...svc,
+          badge: parsedBadge,
+          stability: parsedStability,
+          quality: parsedQuality,
+          refillTag: parsedRefillTag
+        };
+      });
   }, [rawProviderServices, initialCatalogServices, selectedProviderKey]);
 
   const selectedProviderName = providers.find(p => p.key === selectedProviderKey)?.name || selectedProviderKey;

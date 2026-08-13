@@ -12,12 +12,13 @@ export interface ServiceTagData {
   geo: 'Indian' | 'USA' | 'Global';
   speed: 'Instant' | 'Fast' | 'Normal Speed' | 'Slow Speed' | 'Unstable';
   refill: 'No Refill' | 'Available';
+  refillLabel: string;
   drop: 'Non Drop' | 'Low Drop' | 'High Drop';
 }
 
 export function getServiceTags(service: NormalizedSmmService | any): ServiceTagData {
   if (!service) {
-    return { tags: [], geo: 'Global', speed: 'Normal Speed', refill: 'No Refill', drop: 'Low Drop' };
+    return { tags: [], geo: 'Global', speed: 'Normal Speed', refill: 'No Refill', refillLabel: 'No Refill', drop: 'Low Drop' };
   }
 
   const categoryStr = (service.category || '').toLowerCase();
@@ -26,65 +27,111 @@ export function getServiceTags(service: NormalizedSmmService | any): ServiceTagD
   const fullText = `${categoryStr} ${nameStr} ${descStr}`;
 
   const tags: ServiceTag[] = [];
-  
-  // 1. Refill Tag
-  const isExplicitNoRefill = 
-    /\b(no\s*refill|non\s*refill|without\s*refill|no-refill|non-refill|refill\s*:\s*(?:no|false|0|none|off|disabled)|0\s*days?\s*refill|no\s*guarantee|no\s*warranty|without\s*guarantee)\b/i.test(fullText);
 
-  const isExplicitRefill = 
-    /\b(refill|guarantee|warranty|auto\s*refill|\br30\b|\br60\b|\br90\b|\br365\b)\b/i.test(fullText);
-
-  let hasRefill = false;
-  if (isExplicitNoRefill) {
-    hasRefill = false;
-  } else if (service.refill === true || isExplicitRefill) {
-    hasRefill = true;
-  } else if (service.refill === false) {
-    hasRefill = false;
+  // 0. Admin Badge Override (Recommended, Best, Cheapest, Premium)
+  let explicitBadge = (service as any).badge;
+  if (!explicitBadge && service.tags && Array.isArray(service.tags)) {
+    const t = service.tags.find((x: string) => x.startsWith("badge:"));
+    if (t) explicitBadge = t.replace("badge:", "");
   }
 
+  if (explicitBadge && explicitBadge !== "auto") {
+    const b = explicitBadge.toLowerCase();
+    if (b === 'recommended') {
+      tags.push({ label: '⭐ Recommended', icon: '', className: 'badge-recommended', type: 'badge' as any });
+    } else if (b === 'best') {
+      tags.push({ label: '🔥 Best Seller', icon: '', className: 'badge-best', type: 'badge' as any });
+    } else if (b === 'cheapest') {
+      tags.push({ label: '🏷️ Cheapest', icon: '', className: 'badge-cheapest', type: 'badge' as any });
+    } else if (b === 'premium') {
+      tags.push({ label: '💎 Premium', icon: '', className: 'badge-premium', type: 'badge' as any });
+    }
+  }
+
+  // 1. Refill Tag
+  let explicitRefillTag = (service as any).refillTag;
+  if (!explicitRefillTag && service.tags && Array.isArray(service.tags)) {
+    const t = service.tags.find((x: string) => x.startsWith("refill:"));
+    if (t) explicitRefillTag = t.replace("refill:", "");
+  }
+
+  let hasRefill = false;
   let refillStatus: 'No Refill' | 'Available' = 'No Refill';
-  
-  if (hasRefill) {
-    let refillLabel = 'Refill Available';
-    
-    if (fullText.includes('lifetime') || fullText.includes('permanent')) {
-      refillLabel = 'Lifetime Refill';
+  let refillLabel = 'No Refill';
+
+  if (explicitRefillTag && explicitRefillTag !== "auto") {
+    if (explicitRefillTag === "No Refill") {
+      hasRefill = false;
+      refillStatus = 'No Refill';
+      refillLabel = 'No Refill';
     } else {
-      const match = fullText.match(/(\d+)\s*(?:days?|d)(?:\s*refill|\s*guarantee|\s*warranty)?|refill\s*(?:for\s*)?(\d+)\s*(?:days?|d)/i);
-      if (match) {
-        const num = match[1] || match[2];
-        if (num === '0') {
-          hasRefill = false;
-        } else {
-          refillLabel = `${num} Days Refill`;
-        }
+      hasRefill = true;
+      refillStatus = 'Available';
+      refillLabel = explicitRefillTag.toLowerCase().includes("refill") || explicitRefillTag.toLowerCase().includes("guarantee")
+        ? explicitRefillTag 
+        : `${explicitRefillTag} Refill`;
+    }
+  } else {
+    // Fallback to description regex parsing if explicitRefillTag is "auto" or missing
+    const isExplicitNoRefill = 
+      /\b(no\s*refill|non\s*refill|without\s*refill|no-refill|non-refill|refill\s*:\s*(?:no|false|0|none|off|disabled)|0\s*days?\s*refill|no\s*guarantee|no\s*warranty|without\s*guarantee)\b/i.test(fullText);
+
+    const isExplicitRefill = 
+      /\b(refill|guarantee|warranty|auto\s*refill|\br30\b|\br60\b|\br90\b|\br365\b)\b/i.test(fullText);
+
+    if (isExplicitNoRefill) {
+      hasRefill = false;
+    } else if (service.refill === true || isExplicitRefill) {
+      hasRefill = true;
+    } else {
+      hasRefill = false;
+    }
+
+    if (hasRefill) {
+      refillStatus = 'Available';
+      if (fullText.includes('lifetime') || fullText.includes('permanent')) {
+        refillLabel = 'Lifetime Refill';
       } else {
-        const looseMatch = fullText.match(/(\d+)\s*days?/i);
-        if (looseMatch && looseMatch[1] !== '0') {
-          refillLabel = `${looseMatch[1]} Days Refill`;
+        const dayMatch = fullText.match(/\b(365|180|120|90|60|30|14|7)\s*(?:days?|d)?\b(?:\s*(?:refill|guarantee|warranty))?/i) ||
+                         fullText.match(/\b(\d+)\s*(?:days?|d)\b/i) ||
+                         fullText.match(/\b(?:r|refill\s*for\s*)(\d+)\b/i);
+        if (dayMatch) {
+          const num = dayMatch[1];
+          if (num === '0') {
+            hasRefill = false;
+            refillStatus = 'No Refill';
+            refillLabel = 'No Refill';
+          } else {
+            refillLabel = `${num} Days Refill`;
+          }
+        } else {
+          refillLabel = '30 Days Refill';
         }
       }
     }
-    
-    if (hasRefill) {
-      tags.push({ label: refillLabel, icon: '/order/refill.png', className: 'refill', type: 'refill' });
-      refillStatus = 'Available';
-    }
   }
 
-  if (!hasRefill) {
+  if (hasRefill) {
+    tags.push({ label: refillLabel, icon: '/order/refill.png', className: 'refill', type: 'refill' });
+  } else {
     tags.push({ label: 'No Refill', icon: '/order/refill.png', className: 'refill-no', type: 'refill' });
-    refillStatus = 'No Refill';
   }
 
   // 2. Drop / Non-Drop / High Drop Tag
+  let explicitStability = service.stability;
+  if (!explicitStability && service.tags && Array.isArray(service.tags)) {
+    const t = service.tags.find((x: string) => x.startsWith("stability:"));
+    if (t) explicitStability = t.replace("stability:", "");
+  }
+
   const isNonDrop = 
+    explicitStability === 'Non-Drop' ||
     (service as any).drop === 'non_drop' || 
     service.stability?.toLowerCase().includes('non') ||
     /\b(non[-\s]?drop|no\s*drop|nondrop|zero\s*drop|drop\s*free|never\s*drop|permanent)\b/i.test(fullText);
 
   const isHighDrop = 
+    explicitStability === 'High Drop' || explicitStability === 'May Drop' ||
     (service as any).drop === 'high_drop' ||
     /\b(high[-\s]?drop|may\s*drop|will\s*drop|possible\s*drop|heavy\s*drop|fast\s*drop|high\s*loss|drop\s*rate\s*:?\s*high|drop\s*:\s*high)\b/i.test(fullText);
 
@@ -93,7 +140,8 @@ export function getServiceTags(service: NormalizedSmmService | any): ServiceTagD
     tags.push({ label: 'Non Drop', icon: '/order/non-drop.png', className: 'nondrop', type: 'drop' });
     dropStatus = 'Non Drop';
   } else if (isHighDrop) {
-    tags.push({ label: 'High Drop', icon: '/order/non-drop.png', className: 'highdrop', type: 'drop' });
+    const label = explicitStability === 'May Drop' ? 'May Drop' : 'High Drop';
+    tags.push({ label, icon: '/order/non-drop.png', className: 'highdrop', type: 'drop' });
     dropStatus = 'High Drop';
   } else {
     tags.push({ label: 'Low Drop', icon: '/order/non-drop.png', className: 'drop', type: 'drop' });
@@ -158,5 +206,5 @@ export function getServiceTags(service: NormalizedSmmService | any): ServiceTagD
     geoStatus = 'Global';
   }
 
-  return { tags, geo: geoStatus, speed: speedStatus, refill: refillStatus, drop: dropStatus };
+  return { tags, geo: geoStatus, speed: speedStatus, refill: refillStatus, refillLabel, drop: dropStatus };
 }

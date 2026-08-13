@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import * as React from "react";
@@ -35,6 +34,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { cleanServiceName } from "@/lib/serviceNameSanitizer";
+import { getServiceTags } from "@/lib/serviceTags";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/admin/utils";
 import { Button } from "@/components/admin/ui/button";
@@ -438,6 +438,44 @@ interface ProviderPickerV3Props {
   providerName: string;
 }
 
+
+function getStandardCategory(item: any, currentSelectedCategory?: string): string {
+  const cat = String(item.type || item.category || "").toLowerCase();
+  const STANDARD = ["followers", "likes", "views", "comments", "shares", "story", "reels", "subscribers", "members", "reactions", "mentions"];
+  
+  if (STANDARD.includes(cat)) {
+    return cat;
+  }
+  
+  const text = `${item.category || ''} ${item.type || ''} ${item.name || ''} ${item.displayName || ''} ${item.providerName || ''} ${item.rawProviderCategory || ''}`.toLowerCase();
+  if (text.includes('like')) return 'likes';
+  if (text.includes('view') || text.includes('reel') || text.includes('video') || text.includes('impression')) return 'views';
+  if (text.includes('comment')) return 'comments';
+  if (text.includes('story') || text.includes('stories')) return 'story';
+  if (text.includes('share') || text.includes('repost') || text.includes('retweet')) return 'shares';
+  if (text.includes('follower') || text.includes('member') || text.includes('subscriber')) return 'followers';
+
+  return currentSelectedCategory || "followers";
+}
+
+function getStandardPlatform(item: any, currentSelectedPlatform?: string): string {
+  const plat = String(item.platform || "").toLowerCase();
+  const STANDARD = ["instagram", "facebook", "youtube", "x", "telegram", "whatsapp", "threads", "tiktok", "spotify"];
+  
+  if (STANDARD.includes(plat)) {
+    return plat;
+  }
+  
+  const text = `${item.platform || ''} ${item.category || ''} ${item.name || ''} ${item.displayName || ''} ${item.providerName || ''}`.toLowerCase();
+  if (text.includes('facebook') || text.includes('fb')) return 'facebook';
+  if (text.includes('youtube') || text.includes('yt')) return 'youtube';
+  if (text.includes('twitter') || text.includes('x ')) return 'x';
+  if (text.includes('telegram') || text.includes('tg')) return 'telegram';
+  if (text.includes('instagram') || text.includes('insta') || text.includes('ig')) return 'instagram';
+
+  return currentSelectedPlatform || "instagram";
+}
+
 export function CatalogPicker({ catalogServices, rawServices: initialServices, providerName, providerKey, providerCurrency, onRefresh }: any) {
   const router = useRouter();
   // Navigation tabs: "picker" | "edits" | "sales"
@@ -474,6 +512,9 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
   const [variantNameMap, setVariantNameMap] = React.useState<Record<string, string>>({});
   const [sellPriceMap, setSellPriceMap] = React.useState<Record<string, string>>({});
   const [multiplierMap, setMultiplierMap] = React.useState<Record<string, string>>({});
+  const [badgeMap, setBadgeMap] = React.useState<Record<string, string>>({});
+  const [stabilityMap, setStabilityMap] = React.useState<Record<string, string>>({});
+  const [modifiedServiceIds, setModifiedServiceIds] = React.useState<Set<string>>(new Set());
 
   const [globalMultiplier, setGlobalMultiplier] = React.useState<string>("1.5");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -635,6 +676,8 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     const initVariantName: Record<string, string> = {};
     const initSellPrice: Record<string, string> = {};
     const initMultiplier: Record<string, string> = {};
+    const initBadge: Record<string, string> = {};
+    const initStability: Record<string, string> = {};
 
     // 1. Live IDs from saved catalog and submission tags
     const liveIds = new Set(Array.from(savedCatalogMap.keys()));
@@ -673,15 +716,33 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     // 1.5. Live services are tracked via savedCatalogMap (not placed in workingSelections unless edited)
 
     // 2. Pre-populate override maps from initialServices & savedCatalogMap
-    initialServices.forEach((svc) => {
+    initialServices.forEach((svc: any) => {
       const id = getCleanId(svc);
       const savedCS = savedCatalogMap.get(id);
 
       initMin[id] = String(svc.min);
       initMax[id] = String(svc.max);
-      initRefill[id] = (svc as any).refillTag || (svc.refill ? "30 Days" : "No Refill");
-      initCancel[id] = svc.cancel ? "enabled" : "disabled";
-      initQuality[id] = svc.quality || "High Quality";
+      let refillVal = (svc as any).refillTag;
+      let badgeVal = (svc as any).badge || "auto";
+      let stabilityVal = (svc as any).stability || "auto";
+      let qualityVal = (svc as any).quality || "High Quality";
+      let cancelVal = "auto";
+      if (svc.tags && Array.isArray(svc.tags)) {
+        svc.tags.forEach((t: string) => {
+          if (t.startsWith("badge:")) badgeVal = t.replace("badge:", "");
+          if (t.startsWith("stability:")) stabilityVal = t.replace("stability:", "");
+          if (t.startsWith("quality:")) qualityVal = t.replace("quality:", "");
+          if (t.startsWith("refill:")) refillVal = t.replace("refill:", "");
+          if (t.startsWith("proposed_refill:")) refillVal = t.replace("proposed_refill:", "");
+          if (t.startsWith("cancel:")) cancelVal = t.replace("cancel:", "");
+        });
+      }
+
+      initRefill[id] = refillVal || "auto";
+      initCancel[id] = cancelVal !== "auto" ? cancelVal : (svc.cancel ? "enabled" : "disabled");
+      initQuality[id] = qualityVal;
+      initBadge[id] = badgeVal;
+      initStability[id] = stabilityVal;
       
       const cleaned = cleanServiceName(svc.displayName || svc.name || svc.providerName || "");
 
@@ -695,7 +756,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
         let vName = "";
         let sPrice = "";
         if (svc.tags && Array.isArray(svc.tags)) {
-          svc.tags.forEach(t => {
+          svc.tags.forEach((t: string) => {
             if (t.startsWith("variant_name:")) vName = t.replace("variant_name:", "");
             if (t.startsWith("sell_price_inr:")) sPrice = t.replace("sell_price_inr:", "");
           });
@@ -747,13 +808,15 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     setVariantNameMap((prev) => ({ ...initVariantName, ...prev }));
     setSellPriceMap((prev) => ({ ...initSellPrice, ...prev }));
     setMultiplierMap((prev) => ({ ...initMultiplier, ...prev }));
+    setBadgeMap((prev) => ({ ...initBadge, ...prev }));
+    setStabilityMap((prev) => ({ ...initStability, ...prev }));
   }, [initialServices, providerName, savedCatalogMap]);
 
   // Unique list of provider's raw categories filtered strictly by current platform AND category slot (e.g. Instagram + Likes)
   const rawCategoriesList = React.useMemo(() => {
     const categoriesSet = new Set<string>();
 
-    initialServices.forEach((s) => {
+    initialServices.forEach((s: any) => {
       const catName = s.rawProviderCategory || s.providerCategory || s.category || "";
       if (!catName) return;
 
@@ -781,7 +844,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
 
   // Services matching selected raw provider category & search query
   const categoryFilteredServices = React.useMemo(() => {
-    return initialServices.filter((s) => {
+    return initialServices.filter((s: ServiceItem) => {
       const catName = s.rawProviderCategory || s.providerCategory || s.category || "";
       const p = (s.platform || "").toLowerCase();
       const t = (s.type || "").toLowerCase();
@@ -839,7 +902,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       }
 
       return true;
-    }).sort((a, b) => {
+    }).sort((a: ServiceItem, b: ServiceItem) => {
       // Smart sort: stability tier first, then price within same tier
       const tierA = getStabilityTier(a).sortOrder;
       const tierB = getStabilityTier(b).sortOrder;
@@ -852,7 +915,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
 
   React.useEffect(() => {
     if (categoryFilteredServices.length > 0) {
-      if (!categoryFilteredServices.some(s => getCleanId(s) === activeServiceId)) {
+      if (!categoryFilteredServices.some((s: ServiceItem) => getCleanId(s) === activeServiceId)) {
         setActiveServiceId(getCleanId(categoryFilteredServices[0]));
       }
     } else {
@@ -862,7 +925,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
 
   const groupedFilteredServices = React.useMemo(() => {
     const groups: Record<string, ServiceItem[]> = {};
-    categoryFilteredServices.forEach(svc => {
+    categoryFilteredServices.forEach((svc: ServiceItem) => {
       const cat = svc.rawProviderCategory || svc.providerCategory || svc.category || "Uncategorized";
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(svc);
@@ -876,7 +939,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     const byPlatform: Record<string, number> = {};
     const bySlot: Record<string, number> = {};
 
-    initialServices.forEach((svc) => {
+    initialServices.forEach((svc: any) => {
       const isMarked = svc.hasPendingProviderSubmission || svc.pendingProviderStatus === "active" || svc.isProviderSubmission || (svc.tags && svc.tags.some((t: string) => t.includes("provider_status:active") || t.includes("proposed_status:active"))) || svc.status === "active";
       const isLiveOrPending = isMarked && !rejectedSelections.has(getCleanId(svc));
       
@@ -919,13 +982,13 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     setWorkingSelections((prev) => {
       const next: Record<string, ServiceItem[]> = {};
       Object.entries(prev).forEach(([key, items]) => {
-        next[key] = items.filter((item) => getCleanId(item) !== cleanId);
+        next[key] = items.filter((item: ServiceItem) => getCleanId(item) !== cleanId);
       });
       next[slotKey] = [...(next[slotKey] || []), service];
       return next;
     });
 
-    if (!refillMap[cleanId]) setRefillMap((prev) => ({ ...prev, [cleanId]: service.refill ? "30 Days" : "No Refill" }));
+    if (!refillMap[cleanId]) setRefillMap((prev) => ({ ...prev, [cleanId]: "auto" }));
     if (!cancelMap[cleanId]) setCancelMap((prev) => ({ ...prev, [cleanId]: "auto" }));
     if (!minMap[cleanId]) setMinMap((prev) => ({ ...prev, [cleanId]: String(service.min) }));
     if (!maxMap[cleanId]) setMaxMap((prev) => ({ ...prev, [cleanId]: String(service.max) }));
@@ -963,10 +1026,19 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     toast.info(`Removed service #${cleanId} from working list.`);
   };
 
-  const handleFieldChange = (field: "groupName" | "variantName" | "sellPrice" | "multiplier", value: string, svc: ServiceItem) => {
+  const handleFieldChange = (
+    field: "groupName" | "variantName" | "sellPrice" | "multiplier" | "badge" | "refillTag" | "stability" | "cancel", 
+    value: string, 
+    svc: ServiceItem
+  ) => {
     const cleanId = getCleanId(svc);
     if (field === "groupName") setGroupNameMap(prev => ({ ...prev, [cleanId]: value }));
     if (field === "variantName") setVariantNameMap(prev => ({ ...prev, [cleanId]: value }));
+    if (field === "badge") setBadgeMap(prev => ({ ...prev, [cleanId]: value }));
+    if (field === "refillTag") setRefillMap(prev => ({ ...prev, [cleanId]: value }));
+    if (field === "stability") setStabilityMap(prev => ({ ...prev, [cleanId]: value }));
+    if (field === "cancel") setCancelMap(prev => ({ ...prev, [cleanId]: value }));
+    setModifiedServiceIds((prev) => new Set(prev).add(cleanId));
     
     if (field === "sellPrice") {
         setSellPriceMap(prev => ({ ...prev, [cleanId]: value }));
@@ -1010,10 +1082,10 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     const liveIds = new Set(
       initialServices
         .filter((s: any) => s.hasPendingProviderSubmission || s.pendingProviderStatus === "active" || s.isProviderSubmission || (s.tags && s.tags.some((t: string) => t.includes("provider_status:active") || t.includes("proposed_status:active"))))
-        .map((s) => getCleanId(s))
+        .map((s: any) => getCleanId(s))
     );
 
-    initialServices.forEach((svc) => {
+    initialServices.forEach((svc: any) => {
       const cleanId = getCleanId(svc);
       if (liveIds.has(cleanId)) {
         const slot = resolveServiceSlotKey(svc);
@@ -1030,8 +1102,39 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
 
   // Submit all working services to backend
   const handleSubmit = async () => {
-    if (totalWorkingCount === 0 && rejectedSelections.size === 0) {
-      toast.error("Please pick or remove at least 1 service before submitting.");
+    // 1. Gather all services to update: items in workingSelections AND saved catalog items
+    const allServicesToSave = new Map<string, ServiceItem>();
+
+    // Add all working selections
+    Object.values(workingSelections).forEach((items) => {
+      items.forEach((item) => {
+        const cleanId = getCleanId(item);
+        if (cleanId) allServicesToSave.set(cleanId, item);
+      });
+    });
+
+    // Add all saved catalog services
+    initialServices.forEach((svc: any) => {
+      const cleanId = getCleanId(svc);
+      if (cleanId && savedCatalogMap.has(cleanId) && !rejectedSelections.has(cleanId)) {
+        if (!allServicesToSave.has(cleanId)) {
+          allServicesToSave.set(cleanId, svc);
+        }
+      }
+    });
+
+    // Add any modified services
+    modifiedServiceIds.forEach((cleanId) => {
+      if (!rejectedSelections.has(cleanId) && !allServicesToSave.has(cleanId)) {
+        const match = initialServices.find((s: any) => getCleanId(s) === cleanId);
+        if (match) {
+          allServicesToSave.set(cleanId, match);
+        }
+      }
+    });
+
+    if (allServicesToSave.size === 0 && rejectedSelections.size === 0) {
+      toast.error("Please pick, edit or remove at least 1 service before submitting.");
       return;
     }
 
@@ -1039,42 +1142,43 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       setIsSubmitting(true);
       const updates: any[] = [];
 
-      Object.entries(workingSelections).forEach(([key, items]) => {
-        const [platform, category] = key.split(":");
-        items.forEach((item) => {
-          const cleanId = getCleanId(item);
-          if (!cleanId) return;
-          const sourceId = cleanId;
+      allServicesToSave.forEach((item, cleanId) => {
+        const sourceId = cleanId;
 
-          const cancelSelection = cancelMap[cleanId] || "auto";
-          let cancelOverride: boolean | undefined = undefined;
-          if (cancelSelection === "enabled") cancelOverride = true;
-          if (cancelSelection === "disabled") cancelOverride = false;
+        // Resolve platform & category slot using robust detection
+        const platform = getStandardPlatform(item, selectedPlatform);
+        const category = getStandardCategory(item, selectedCategory);
 
-          let sellPriceInr: number | undefined = undefined;
-          if (sellPriceMap[cleanId] && !isNaN(parseFloat(sellPriceMap[cleanId]))) {
-            sellPriceInr = parseFloat(sellPriceMap[cleanId]);
-          } else {
-            let baseRate = typeof item.ratePer1000 === "number" ? item.ratePer1000 : parseFloat(item.rate || item.ratePer1000 || "0");
-            sellPriceInr = Math.ceil(baseRate * 1.5);
-          }
+        const cancelSelection = cancelMap[cleanId] || "auto";
+        let cancelOverride: boolean | undefined = undefined;
+        if (cancelSelection === "enabled") cancelOverride = true;
+        if (cancelSelection === "disabled") cancelOverride = false;
 
-          updates.push({
-            id: sourceId,
-            name: item.name || item.providerName || `Service #${sourceId}`,
-            displayName: groupNameMap[cleanId] || item.displayName || item.name || item.providerName,
-            status: "active",
-            platform,
-            category,
-            rate: item.rate || item.ratePer1000,
-            min: minMap[cleanId] ? parseInt(minMap[cleanId], 10) : item.min,
-            max: maxMap[cleanId] ? parseInt(maxMap[cleanId], 10) : item.max,
-            refillTag: refillMap[cleanId] || (item.refill ? "30 Days" : "No Refill"),
-            variantName: variantNameMap[cleanId] || "Default",
-            sellPriceInr,
-            cancel: cancelOverride !== undefined ? cancelOverride : item.cancel,
-            quality: qualityMap[cleanId] || "High Quality"
-          });
+        let sellPriceInr: number | undefined = undefined;
+        if (sellPriceMap[cleanId] && !isNaN(parseFloat(sellPriceMap[cleanId]))) {
+          sellPriceInr = parseFloat(sellPriceMap[cleanId]);
+        } else {
+          let baseRate = typeof item.ratePer1000 === "number" ? item.ratePer1000 : parseFloat(item.rate || item.ratePer1000 || "0");
+          sellPriceInr = Math.ceil(baseRate * 1.5);
+        }
+
+        updates.push({
+          id: sourceId,
+          name: item.name || item.providerName || `Service #${sourceId}`,
+          displayName: groupNameMap[cleanId] || item.displayName || item.name || item.providerName,
+          status: "active",
+          platform,
+          category,
+          rate: item.rate || item.ratePer1000,
+          min: minMap[cleanId] ? parseInt(minMap[cleanId], 10) : item.min,
+          max: maxMap[cleanId] ? parseInt(maxMap[cleanId], 10) : item.max,
+          refillTag: refillMap[cleanId] || "auto",
+          variantName: variantNameMap[cleanId] || "Default",
+          sellPriceInr,
+          cancel: cancelOverride !== undefined ? cancelOverride : item.cancel,
+          quality: qualityMap[cleanId] || "High Quality",
+          badge: badgeMap[cleanId] || "auto",
+          stability: stabilityMap[cleanId] || "auto"
         });
       });
 
@@ -1086,12 +1190,20 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
         });
       });
 
-      await apiClient.post("/provider/services/curate", { providerName: providerKey || providerName, updates });
+      console.log("[CURATE DEBUG] Sending updates:", JSON.stringify(updates, null, 2));
+      console.log("[CURATE DEBUG] providerName:", providerKey || providerName);
+      console.log("[CURATE DEBUG] allServicesToSave size:", allServicesToSave.size);
+      console.log("[CURATE DEBUG] workingSelections keys:", Object.keys(workingSelections));
+      console.log("[CURATE DEBUG] modifiedServiceIds:", [...modifiedServiceIds]);
+      console.log("[CURATE DEBUG] savedCatalogMap size:", savedCatalogMap.size, "keys:", [...savedCatalogMap.keys()].slice(0, 10));
+      
+      const response = await apiClient.post("/provider/services/curate", { providerName: providerKey || providerName, updates });
+      console.log("[CURATE DEBUG] API response:", response);
       try {
         const { clearServicesCache } = await import("@/lib/useServices");
         clearServicesCache();
       } catch (e) {}
-      toast.success(`Verification submitted successfully! ${updates.length} working service(s) saved.`);
+      toast.success(`Verification submitted successfully! ${updates.length} service(s) saved.`);
 
       // Clear draft working selections and localStorage
       setWorkingSelections({});
@@ -1108,7 +1220,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       setActiveTab("edits");
       router.refresh();
     } catch (err: any) {
-      toast.error(err.message || "Failed to submit working services");
+      toast.error(err.message || "Failed to submit services");
     } finally {
       setIsSubmitting(false);
     }
@@ -1304,7 +1416,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                   onClick={() => {
                      let addedCount = 0;
                      let nextRejected = new Set(rejectedSelections);
-                     categoryFilteredServices.forEach((svc) => {
+                     categoryFilteredServices.forEach((svc: ServiceItem) => {
                        const cleanId = getCleanId(svc);
                        const isMarkedByProvider = svc.hasPendingProviderSubmission || svc.isProviderSubmission || svc.status === "active" || (svc.tags && svc.tags.some((t: string) => t.includes("provider_status:active") || t.includes("proposed_status:active")));
                        const isAdded = currentWorkingList.some((item) => getCleanId(item) === cleanId) || (isMarkedByProvider && !nextRejected.has(cleanId));
@@ -1357,6 +1469,32 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                         const geo = detectGeo(svc);
                         const calculatedSpeed = calculateDailySpeed(svc);
                         const disparities = detectDisparities(svc);
+
+                        // 4 Core Metadata Attributes (Category, Refill, Drop, Cancel)
+                        const categoryVal = svc.rawProviderCategory || svc.providerCategory || svc.category || "";
+                        
+                        let rawRefill = refillMap[cleanId];
+                        if (!rawRefill || rawRefill === "auto") {
+                          const { refillLabel } = getServiceTags(svc);
+                          rawRefill = refillLabel || (svc.refill ? "30 Days Refill" : "No Refill");
+                        }
+                        const isRefillActive = rawRefill && rawRefill !== "No Refill" && rawRefill !== "0 Days";
+
+                        const cancelVal = cancelMap[cleanId] && cancelMap[cleanId] !== "auto"
+                          ? cancelMap[cleanId] === "enabled"
+                          : Boolean(svc.cancel);
+
+                        let dropVal = (qualityMap[cleanId] && qualityMap[cleanId] !== "auto")
+                          ? qualityMap[cleanId]
+                          : (svc as any).stability || (svc as any).quality || "";
+
+                        if (!dropVal || dropVal === "auto" || dropVal === "default") {
+                          const text = `${svc.name || svc.providerName || ""} ${svc.desc || svc.description || ""}`.toLowerCase();
+                          if (/\b(non[-\s]?drop|no\s*drop|zero\s*drop)\b/.test(text)) dropVal = "Non-Drop";
+                          else if (/\b(low\s*drop|low-drop)\b/.test(text)) dropVal = "Low Drop";
+                          else if (/\b(high\s*drop|may\s*drop)\b/.test(text)) dropVal = "High Drop";
+                          else dropVal = "Low Drop";
+                        }
                         
                         return (
                           <div
@@ -1403,7 +1541,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                             </div>
 
                             {/* Title */}
-                            <h4 className="text-[13px] font-['GPB'] text-gray-900 leading-[1.3] mb-4">
+                            <h4 className="text-[13px] font-['GPB'] text-gray-900 leading-[1.3] mb-3">
                               {svc.name || svc.providerName || "Service"}
                             </h4>
 
@@ -1587,7 +1725,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
             {/* Right Pane: Service Details */}
             <div className="w-full lg:w-1/2 flex flex-col bg-white overflow-y-auto p-6 pb-28 relative shadow-[0_-8px_20px_rgba(0,0,0,0.08)] z-10 lg:shadow-none lg:z-auto">
               {(() => {
-                const activeSvc = categoryFilteredServices.find((s) => getCleanId(s) === activeServiceId);
+                const activeSvc = categoryFilteredServices.find((s: ServiceItem) => getCleanId(s) === activeServiceId);
                 if (!activeSvc)
                   return (
                     <div className="text-center text-xs text-gray-400 mt-10">
@@ -1667,6 +1805,82 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                           <div className="text-[9px] font-['GM'] opacity-60">min</div>
                         </div>
                       )}
+                    </div>
+
+                    {/* Interactive Service Tagging & Badges Controls */}
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-['GPB'] text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                          🏷️ Service Tagging & Custom Badges
+                        </h4>
+                        <span className="text-[10px] font-['GM'] text-gray-500">Service #{activeCleanId}</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Catalog Badge / Tag */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-['GPB'] text-gray-600 uppercase tracking-wider block">Badge / Tagging</label>
+                          <select
+                            value={badgeMap[activeCleanId] || "auto"}
+                            onChange={(e) => handleFieldChange("badge", e.target.value, activeSvc)}
+                            className="w-full h-8 text-xs font-['GM'] bg-white border border-gray-300 rounded-lg px-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          >
+                            <option value="auto">Auto / Default</option>
+                            <option value="Recommended">⭐ Recommended</option>
+                            <option value="Best">🔥 Best Selling</option>
+                            <option value="Cheapest">💰 Cheapest Rate</option>
+                            <option value="Premium">💎 Premium Quality</option>
+                          </select>
+                        </div>
+
+                        {/* Refill Guarantee */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-['GPB'] text-gray-600 uppercase tracking-wider block">Refill Guarantee</label>
+                          <select
+                            value={refillMap[activeCleanId] || "auto"}
+                            onChange={(e) => handleFieldChange("refillTag", e.target.value, activeSvc)}
+                            className="w-full h-8 text-xs font-['GM'] bg-white border border-gray-300 rounded-lg px-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          >
+                            <option value="auto">Auto-Detect</option>
+                            <option value="No Refill">❌ No Refill</option>
+                            <option value="30 Days">🔄 30 Days Refill</option>
+                            <option value="60 Days">🔄 60 Days Refill</option>
+                            <option value="90 Days">🔄 90 Days Refill</option>
+                            <option value="365 Days">🔄 365 Days Refill</option>
+                            <option value="Lifetime">♾️ Lifetime Guarantee</option>
+                          </select>
+                        </div>
+
+                        {/* Drop & Stability */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-['GPB'] text-gray-600 uppercase tracking-wider block">Drop & Stability</label>
+                          <select
+                            value={stabilityMap[activeCleanId] || "auto"}
+                            onChange={(e) => handleFieldChange("stability", e.target.value, activeSvc)}
+                            className="w-full h-8 text-xs font-['GM'] bg-white border border-gray-300 rounded-lg px-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          >
+                            <option value="auto">Auto-Detect</option>
+                            <option value="Non-Drop">🛡️ Non-Drop</option>
+                            <option value="Low Drop">📉 Low Drop</option>
+                            <option value="May Drop">⚠️ May Drop</option>
+                            <option value="High Drop">🔥 High Drop</option>
+                          </select>
+                        </div>
+
+                        {/* Cancel Feature */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-['GPB'] text-gray-600 uppercase tracking-wider block">Cancel Button</label>
+                          <select
+                            value={cancelMap[activeCleanId] || "auto"}
+                            onChange={(e) => handleFieldChange("cancel", e.target.value, activeSvc)}
+                            className="w-full h-8 text-xs font-['GM'] bg-white border border-gray-300 rounded-lg px-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                          >
+                            <option value="auto">Auto-Detect</option>
+                            <option value="enabled">⚡ Cancel Supported</option>
+                            <option value="disabled">🚫 No Cancel</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
 
                     {/* User-Side Service Card Live Preview */}

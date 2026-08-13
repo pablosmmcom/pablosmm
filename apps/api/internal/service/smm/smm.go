@@ -67,6 +67,7 @@ type NormalizedSmmService struct {
 	Targeting           string      `json:"targeting"`
 	Quality             string      `json:"quality"`
 	Stability           string      `json:"stability"`
+	Badge               string      `json:"badge"`
 	RefillLimit         int         `json:"refillLimit"`
 	IsHidden                     bool        `json:"isHidden"`
 	Status                       string      `json:"status"`
@@ -266,10 +267,23 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 		}
 	}
 
-	// Fetch Catalog from DB
 	catalog, err := s.db.Queries.GetActiveCatalogServices(context.Background())
 	if err != nil {
 		log.Printf("ERROR: Query pablo_catalog failed: %v", err)
+		catalog = nil
+	}
+
+	overridesMap := make(map[string][]string)
+	rows, err := s.db.Pool.Query(context.Background(), "SELECT source_service_id, tags FROM service_overrides")
+	if err == nil {
+		for rows.Next() {
+			var sid string
+			var tags []string
+			if err := rows.Scan(&sid, &tags); err == nil {
+				overridesMap[sid] = tags
+			}
+		}
+		rows.Close()
 	}
 
 	normalized := make([]NormalizedSmmService, 0)
@@ -320,6 +334,22 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 			variant = catSvc.VariantName.String
 		}
 
+		var badge, stability, quality string
+		tags := overridesMap[fullSID]
+		if tags == nil {
+			tags = overridesMap[providerServiceID]
+		}
+
+		for _, t := range tags {
+			if strings.HasPrefix(t, "badge:") {
+				badge = strings.TrimPrefix(t, "badge:")
+			} else if strings.HasPrefix(t, "stability:") {
+				stability = strings.TrimPrefix(t, "stability:")
+			} else if strings.HasPrefix(t, "quality:") {
+				quality = strings.TrimPrefix(t, "quality:")
+			}
+		}
+
 		n := NormalizedSmmService{
 			ID:                           fmt.Sprintf("%d", catSvc.ID), // PabloSMM Catalog ID
 			Source:                       providerKey,
@@ -343,15 +373,16 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 			Refill:                       refill,
 			Dripfeed:                     dripfeed,
 			Cancel:                       cancel,
-			Tags:                         []string{}, 
+			Tags:                         tags, 
 			RawProviderCategory:          providerCategory,
 			PurchaseCount:                0,
 			DisplayID:                    fmt.Sprintf("%04d", catSvc.ID),
 			Raw:                          raw,
 			Targeting:                    "",
-			Quality:                      "",
-			Stability:                    "",
+			Quality:                      quality,
+			Stability:                    stability,
 			RefillLimit:                  func() int { if refill { return 3 }; return 0 }(),
+			Badge:                        badge,
 			IsHidden:                     !catSvc.IsActive.Bool,
 			Status:                       func() string { if !catSvc.IsActive.Bool { return "hidden" } else { return "active" } }(),
 			CustomInputRequired:          false,

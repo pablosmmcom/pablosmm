@@ -4,6 +4,7 @@ import React from 'react'
 import { FiArrowLeft, FiArrowRight } from 'react-icons/fi'
 import type { NormalizedSmmService } from '@/types/smm'
 import { useCurrency } from '@/components/layout/CurrencyProvider'
+import { getServiceTags } from '@/lib/serviceTags'
 
 interface Props {
   services?: NormalizedSmmService[];
@@ -258,21 +259,98 @@ export default function ServiceInfo({ services, index = 0, onChangeIndex, servic
     return 'Standard';
   }
 
-  const speedLabel = extractSpeed(avgTime, hay, current?.platform);
-  
-  const qualityLabel = current?.quality || extractQualityEnhanced(hay, hayOriginal);
-  
-  const targetingFromRaw = getRawString(['country', 'target', 'targets', 'location']);
-  const targetingLabel = current?.targeting || targetingFromRaw || extractLocation(hay);
+  // Priority-aware tag & attribute extraction matching getServiceTags logic
+  const serviceTagsData = current ? getServiceTags(current) : null;
 
-  const refillPeriod = extractRefillPeriod(hay);
-  const explicitRefill = extractKeyValue(hayOriginal, ['Refill', 'Guarantee']);
-  const refillText = explicitRefill || refillPeriod || (refillFlag ? 'Available' : 'Not Available');
+  // 1. Refill
+  let explicitRefillTag = (current as any)?.refillTag;
+  if (!explicitRefillTag && current?.tags && Array.isArray(current.tags)) {
+    const t = current.tags.find((x: string) => x.startsWith("refill:"));
+    if (t) explicitRefillTag = t.replace("refill:", "");
+  }
 
-  const explicitDrop = extractKeyValue(hayOriginal, ['Drop', 'Stability']);
-  const stabilityLabel = explicitDrop || current?.stability || (extractStability(hay, !!refillFlag) === 'Stable' && refillPeriod
-    ? `Refill: ${refillPeriod}`
-    : extractStability(hay, !!refillFlag));
+  let refillText = 'Not Available';
+  if (explicitRefillTag && explicitRefillTag !== "auto") {
+    if (explicitRefillTag.toLowerCase() === "no refill") {
+      refillText = "No Refill";
+    } else {
+      refillText = explicitRefillTag;
+    }
+  } else if (serviceTagsData) {
+    const rTag = serviceTagsData.tags.find(t => t.type === 'refill');
+    if (rTag) {
+      refillText = rTag.label;
+    } else if (serviceTagsData.refill === 'Available') {
+      refillText = 'Available';
+    } else {
+      refillText = 'No Refill';
+    }
+  } else {
+    const refillPeriod = extractRefillPeriod(hay);
+    const explicitRefill = extractKeyValue(hayOriginal, ['Refill', 'Guarantee']);
+    if (explicitRefill && !/\b0\s*days?\b/i.test(explicitRefill)) {
+      refillText = explicitRefill;
+    } else if (refillPeriod && !/\b0\s*days?\b/i.test(refillPeriod)) {
+      refillText = refillPeriod;
+    } else {
+      refillText = refillFlag ? 'Available' : 'No Refill';
+    }
+  }
+
+  // 2. Stability / Drop
+  let explicitStability = (current as any)?.stability;
+  if (!explicitStability && current?.tags && Array.isArray(current.tags)) {
+    const t = current.tags.find((x: string) => x.startsWith("stability:"));
+    if (t) explicitStability = t.replace("stability:", "");
+  }
+
+  let stabilityLabel = 'Standard';
+  if (explicitStability && explicitStability !== "auto") {
+    stabilityLabel = explicitStability;
+  } else if (serviceTagsData) {
+    const dropTag = serviceTagsData.tags.find(t => t.type === 'drop');
+    if (dropTag) {
+      stabilityLabel = dropTag.label;
+    } else {
+      stabilityLabel = serviceTagsData.drop;
+    }
+  } else {
+    const explicitDrop = extractKeyValue(hayOriginal, ['Drop', 'Stability']);
+    const refillPeriod = extractRefillPeriod(hay);
+    stabilityLabel = explicitDrop || current?.stability || (extractStability(hay, !!refillFlag) === 'Stable' && refillPeriod
+      ? `Refill: ${refillPeriod}`
+      : extractStability(hay, !!refillFlag));
+  }
+
+  // 3. Speed
+  let speedLabel = 'Normal';
+  if (serviceTagsData) {
+    const speedTag = serviceTagsData.tags.find(t => t.type === 'speed');
+    speedLabel = speedTag ? speedTag.label : serviceTagsData.speed;
+  } else {
+    speedLabel = extractSpeed(avgTime, hay, current?.platform);
+  }
+
+  // 4. Quality
+  let qualityLabel = current?.quality;
+  if (!qualityLabel && current?.tags && Array.isArray(current.tags)) {
+    const t = current.tags.find((x: string) => x.startsWith("quality:"));
+    if (t) qualityLabel = t.replace("quality:", "");
+  }
+  if (!qualityLabel) {
+    qualityLabel = extractQualityEnhanced(hay, hayOriginal);
+  }
+
+  // 5. Targeting
+  let targetingLabel = current?.targeting;
+  if (!targetingLabel && current?.tags && Array.isArray(current.tags)) {
+    const t = current.tags.find((x: string) => x.startsWith("geo:"));
+    if (t) targetingLabel = t.replace("geo:", "");
+  }
+  if (!targetingLabel) {
+    const targetingFromRaw = getRawString(['country', 'target', 'targets', 'location']);
+    targetingLabel = targetingFromRaw || extractLocation(hay);
+  }
 
   function formatDuration(mins: number | null | undefined): string {
     if (mins == null || Number.isNaN(Number(mins))) return '';

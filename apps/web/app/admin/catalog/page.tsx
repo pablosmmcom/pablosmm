@@ -16,10 +16,11 @@ export default function CatalogPage() {
       if (isInitial) setLoading(true);
       const [catalogData, rawData] = await Promise.all([
         apiClient.get<any[]>("/admin/catalog"),
-        apiClient.get<any[]>("/admin/provider-services")
+        apiClient.get<any>("/admin/provider-services")
       ]);
-      setCatalogServices(catalogData || []);
-      setRawServices(rawData || []);
+      setCatalogServices(Array.isArray(catalogData) ? catalogData : []);
+      const servicesArray = Array.isArray(rawData) ? rawData : (rawData?.services || []);
+      setRawServices(servicesArray);
     } catch (err: any) {
       console.error("Failed to load catalog data", err);
       setError(err.message || "Failed to load data");

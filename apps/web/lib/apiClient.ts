@@ -3,6 +3,7 @@ import { getApiBaseUrl } from './config';
 async function request<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
 	if (endpoint.startsWith('http')) {
 		const res = await fetch(endpoint, {
+			cache: 'no-store',
 			...options,
 			credentials: 'include',
 			headers: {
@@ -40,6 +41,7 @@ async function request<T = unknown>(endpoint: string, options: RequestInit = {})
 	const url = `${base}${cleanEndpoint}`;
 
 	const res = await fetch(url, {
+		cache: 'no-store',
 		...options,
 		credentials: 'include',
 		headers: {

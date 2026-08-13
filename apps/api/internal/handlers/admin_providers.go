@@ -202,6 +202,8 @@ type CurateServiceUpdate struct {
 	Refill                    *bool    `json:"refill,omitempty"`
 	Cancel                    *bool    `json:"cancel,omitempty"`
 	Quality                   *string  `json:"quality,omitempty"`
+	Stability                 *string  `json:"stability,omitempty"`
+	Badge                     *string  `json:"badge,omitempty"`
 	RefillTag                 *string  `json:"refillTag,omitempty"` // legacy, soon to be VariantName
 	VariantName               *string  `json:"variantName,omitempty"`
 	SellPriceINR              *float64 `json:"sellPriceInr,omitempty"`
@@ -232,9 +234,12 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providerID := body.ProviderName
-	if providerID == "" {
+	if providerID == "" || providerID == "pablosmm" {
 		providerID = "topsmm"
 	}
+
+	// Migrate any legacy 'pablosmm' provider_id entries to 'topsmm'
+	_, _ = h.db.Pool.Exec(context.Background(), `UPDATE pablo_catalog SET provider_id = 'topsmm' WHERE provider_id = 'pablosmm';`)
 
 	// Ensure unique index on pablo_catalog for upsert
 	_, _ = h.db.Pool.Exec(context.Background(), `CREATE UNIQUE INDEX IF NOT EXISTS idx_pablo_catalog_provider_svc ON pablo_catalog (provider_id, provider_service_id);`)
@@ -261,7 +266,7 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 		refill, cancel, dripfeed, service_type,
 		targeting, quality, stability, refill_limit, custom_input_required, custom_input_label, updated_at
 	)
-	VALUES ($1, COALESCE($2, ''), '', CASE WHEN $3 > 0 THEN $3 ELSE 1.0 END, $4::boolean, COALESCE($9, ''), COALESCE($5, '{}'::text[]), '', '', $6::boolean, $7::boolean, false, '', '', COALESCE($8, ''), '', 3, false, '', CURRENT_TIMESTAMP)
+	VALUES ($1, COALESCE($2, ''), '', CASE WHEN $3 > 0 THEN $3 ELSE 1.0 END, $4::boolean, COALESCE($9, ''), COALESCE($5, '{}'::text[]), '', '', $6::boolean, $7::boolean, false, '', '', COALESCE($8, ''), COALESCE($10, ''), 3, false, '', CURRENT_TIMESTAMP)
 	ON CONFLICT (source_service_id) 
 	DO UPDATE SET 
 		display_name = CASE WHEN EXCLUDED.display_name != '' THEN EXCLUDED.display_name ELSE service_overrides.display_name END,
@@ -271,6 +276,7 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 		refill = CASE WHEN $6::boolean IS NOT NULL THEN EXCLUDED.refill ELSE service_overrides.refill END,
 		cancel = CASE WHEN $7::boolean IS NOT NULL THEN EXCLUDED.cancel ELSE service_overrides.cancel END,
 		quality = CASE WHEN EXCLUDED.quality != '' THEN EXCLUDED.quality ELSE service_overrides.quality END,
+		stability = CASE WHEN EXCLUDED.stability != '' THEN EXCLUDED.stability ELSE service_overrides.stability END,
 		updated_at = CURRENT_TIMESTAMP;`
 
 	// Single item approval query: promotes proposed tags to live tags and sets is_hidden
@@ -315,7 +321,7 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 		refill, cancel, dripfeed, service_type,
 		targeting, quality, stability, refill_limit, custom_input_required, custom_input_label, updated_at
 	)
-	VALUES ($1, COALESCE($2, ''), '', CASE WHEN $3 > 0 THEN $3 ELSE 1.0 END, $4::boolean, COALESCE($9, ''), COALESCE($5, '{}'::text[]), '', '', $6::boolean, $7::boolean, false, '', '', COALESCE($8, ''), '', 3, false, '', CURRENT_TIMESTAMP)
+	VALUES ($1, COALESCE($2, ''), '', CASE WHEN $3 > 0 THEN $3 ELSE 1.0 END, $4::boolean, COALESCE($9, ''), COALESCE($5, '{}'::text[]), '', '', $6::boolean, $7::boolean, false, '', '', COALESCE($8, ''), COALESCE($10, ''), 3, false, '', CURRENT_TIMESTAMP)
 	ON CONFLICT (source_service_id) 
 	DO UPDATE SET 
 		tags = ARRAY(
@@ -324,6 +330,7 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 		refill = CASE WHEN $6::boolean IS NOT NULL THEN EXCLUDED.refill ELSE service_overrides.refill END,
 		cancel = CASE WHEN $7::boolean IS NOT NULL THEN EXCLUDED.cancel ELSE service_overrides.cancel END,
 		quality = CASE WHEN EXCLUDED.quality != '' THEN EXCLUDED.quality ELSE service_overrides.quality END,
+		stability = CASE WHEN EXCLUDED.stability != '' THEN EXCLUDED.stability ELSE service_overrides.stability END,
 		updated_at = CURRENT_TIMESTAMP;`
 
 	batch := &pgx.Batch{}
@@ -377,6 +384,12 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 		if item.SellPriceINR != nil {
 			tags = append(tags, fmt.Sprintf("sell_price_inr:%.2f", *item.SellPriceINR))
 		}
+		if item.Stability != nil && *item.Stability != "" && *item.Stability != "auto" {
+			tags = append(tags, "stability:"+*item.Stability)
+		}
+		if item.Badge != nil && *item.Badge != "" && *item.Badge != "auto" {
+			tags = append(tags, "badge:"+*item.Badge)
+		}
 
 		displayNameVal := ""
 		if item.DisplayName != nil {
@@ -386,6 +399,11 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 		qualityVal := ""
 		if item.Quality != nil {
 			qualityVal = *item.Quality
+		}
+
+		stabilityVal := ""
+		if item.Stability != nil {
+			stabilityVal = *item.Stability
 		}
 
 		var refillVal *bool
@@ -425,15 +443,15 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Queue primary ID
-			batch.Queue(targetQuery, item.ID, displayNameVal, float64(1.0), effectiveIsHidden, tags, refillVal, cancelVal, qualityVal, item.Category)
+			batch.Queue(targetQuery, item.ID, displayNameVal, float64(1.0), effectiveIsHidden, tags, refillVal, cancelVal, qualityVal, item.Category, stabilityVal)
 
 			// Queue counterpart ID (raw vs provider-prefixed)
 			if strings.Contains(item.ID, ":") {
 				parts := strings.SplitN(item.ID, ":", 2)
-				batch.Queue(targetQuery, parts[1], displayNameVal, float64(1.0), effectiveIsHidden, tags, refillVal, cancelVal, qualityVal, item.Category)
+				batch.Queue(targetQuery, parts[1], displayNameVal, float64(1.0), effectiveIsHidden, tags, refillVal, cancelVal, qualityVal, item.Category, stabilityVal)
 			} else {
 				fullID := "topsmm:" + item.ID
-				batch.Queue(targetQuery, fullID, displayNameVal, float64(1.0), effectiveIsHidden, tags, refillVal, cancelVal, qualityVal, item.Category)
+				batch.Queue(targetQuery, fullID, displayNameVal, float64(1.0), effectiveIsHidden, tags, refillVal, cancelVal, qualityVal, item.Category, stabilityVal)
 			}
 		}
 
@@ -444,6 +462,9 @@ func (h *Handler) CurateServicesAdmin(w http.ResponseWriter, r *http.Request) {
 			parts := strings.SplitN(cleanSvcID, ":", 2)
 			provID = parts[0]
 			cleanSvcID = parts[1]
+		}
+		if provID == "pablosmm" || provID == "" {
+			provID = "topsmm"
 		}
 
 		if isHidden {
