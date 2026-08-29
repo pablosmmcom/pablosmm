@@ -31,7 +31,7 @@ export default function OrderDetailPage() {
   const [refilling, setRefilling] = useState(false);
   
   const { services } = useNormalizedServices();
-  const { convertPrice } = useAuth();
+  const { convertPrice, user } = useAuth();
 
   useEffect(() => {
     if (!id) return;
@@ -280,6 +280,58 @@ export default function OrderDetailPage() {
   } else if ((order.charge || order.amount) && order.quantity) {
     calculatedRatePer1000Inr = ((order.charge || order.amount) / order.quantity) * 1000;
   }
+
+  const formatAvgTime = (rawAvg: any) => {
+    if (rawAvg === undefined || rawAvg === null || rawAvg === "" || rawAvg === "N/A") return "~45 mins";
+    const mins = typeof rawAvg === "number" ? rawAvg : parseFloat(String(rawAvg));
+    if (isNaN(mins) || mins <= 0) return "~45 mins";
+    if (mins < 1) return "< 1 min";
+    if (mins < 60) return `~${Math.round(mins)} mins`;
+    const hours = mins / 60;
+    if (hours < 24) {
+      const roundedHours = Math.round(hours * 10) / 10;
+      return `~${roundedHours} hrs`;
+    }
+    const days = Math.round((mins / 1440) * 10) / 10;
+    return `~${days} days`;
+  };
+
+  const getWhatsappSupportUrl = () => {
+    if (!order) return "https://wa.me/919473528346";
+    const orderId = order?.id ? `#${order.id}` : 'N/A';
+    const displayId = order?.displayId || order?.serviceId || 'N/A';
+    const serviceTitle = cleanServiceName || 'N/A';
+    const quantityStr = order?.quantity ? Number(order.quantity).toLocaleString() : 'N/A';
+    const amountStr = order?.charge ? `₹${Number(order.charge).toFixed(2)}` : (order?.amountCents ? `₹${(order.amountCents / 100).toFixed(2)}` : 'N/A');
+    const statusStr = order?.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'N/A';
+    const targetLink = order?.link || 'N/A';
+    const orderDateStr = order?.date ? format(new Date(order.date), "dd MMM yyyy, hh:mm a") : 'N/A';
+    const userEmail = (user as any)?.email || order?.userEmail || 'N/A';
+    const userId = (user as any)?.id || order?.userId || 'N/A';
+
+    const msg = 
+`Hello PabloSMM Support,
+
+I need assistance with my order. Here are the details:
+
+📋 *Order Details:*
+• *Order ID:* ${orderId}
+• *Service:* ${serviceTitle} (ID: ${displayId})
+• *Quantity:* ${quantityStr}
+• *Amount:* ${amountStr}
+• *Status:* ${statusStr}
+• *Target Link:* ${targetLink}
+• *Order Date:* ${orderDateStr}
+
+👤 *User Details:*
+• *Email:* ${userEmail}
+• *User ID:* #${userId}
+
+*Issue / Query:* `;
+
+    return `https://wa.me/919473528346?text=${encodeURIComponent(msg)}`;
+  };
+
   const getStatusMessage = (status: string) => {
     const s = (status || "").toLowerCase();
     if (s === "completed") return "Your order has been completed!";
@@ -676,7 +728,7 @@ export default function OrderDetailPage() {
           startTimeSubtitle: "0-10 Minutes",
           speed: serviceTagData?.speed || "Fast",
           speedSubtitle: "Avg. Delivery Speed",
-          completeTime: matchingService?.averageTime ? `${Math.round(matchingService.averageTime / 60)} mins` : "~45 mins",
+          completeTime: formatAvgTime(matchingService?.averageTime),
           completeTimeSubtitle: "Estimated",
           refillDuration: hasRefill ? (isLifetimeRefill ? "Lifetime" : `${refillDays} Days`) : "None",
           refillDurationSubtitle: hasRefill && matchingService?.refillLimit !== undefined && matchingService?.refillLimit > 0 ? `${matchingService.refillLimit} times/mo` : (hasRefill ? "Unlimited/Custom" : "No refill"),
@@ -697,6 +749,7 @@ export default function OrderDetailPage() {
         isCancelable={!!(matchingService?.cancel && (order.status === 'pending' || order.status === 'processing' || order.status === 'submitted' || order.status === 'active')) && !order.pendingCancel} 
         isCanceling={canceling}
         customCancelText={order?.pendingCancel ? "Cancel Requested" : undefined}
+        whatsappUrl={getWhatsappSupportUrl()}
       />
       
     </div>

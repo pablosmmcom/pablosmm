@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import HeaderSwitch from '@/components/layout/HeaderSwitch';
 import BottomSheet from '@/components/modal/BottomSheet';
 import CurrencyStrip from '@/components/layout/CurrencyStrip';
+import FloatingWhatsApp from '@/components/layout/FloatingWhatsApp';
 
 export default function RootShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || '/';
@@ -21,6 +22,7 @@ export default function RootShell({ children }: { children: React.ReactNode }) {
         {children}
       </div>
       <BottomSheet />
+      <FloatingWhatsApp />
     </>
   );
 }

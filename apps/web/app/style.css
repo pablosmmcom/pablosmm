@@ -8117,3 +8117,17 @@ button:focus {
   mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 75%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 75%, transparent 100%);
 }
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+}

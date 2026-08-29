@@ -6,16 +6,29 @@ interface HelpCardProps {
   isCancelable?: boolean;
   isCanceling?: boolean;
   customCancelText?: string;
+  whatsappUrl?: string;
 }
 
-const HelpCard: React.FC<HelpCardProps> = ({ onCancel, isCancelable = false, isCanceling = false, customCancelText }) => {
+const HelpCard: React.FC<HelpCardProps> = ({ 
+  onCancel, 
+  isCancelable = false, 
+  isCanceling = false, 
+  customCancelText,
+  whatsappUrl = "https://wa.me/919473528346"
+}) => {
+  const handleSupportClick = () => {
+    if (typeof window !== 'undefined') {
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   return (
     <div className='help-card'>
         <div className="text-container">
             <h2 className='title'>Need Help with your orders?</h2>
             <p className='description'>Facing issues with delivery, refill,or order status? Get help instantly.</p>
             <div className="btn-wrapper">
-                <button className='cta-help whatsapp'>
+                <button className='cta-help whatsapp' onClick={handleSupportClick}>
                     <Image src="/orders/platforms/whatsapp.png" alt="Whatsapp" width={24} height={24} />
                     <span>Contact Support</span>
                 </button>

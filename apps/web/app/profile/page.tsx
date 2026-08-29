@@ -136,6 +136,32 @@ export default function Page() {
   const displayName = user.name || user.username || user.email.split('@')[0];
   const avatarUrl = user.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${displayName}`;
 
+  const getProfileWhatsappUrl = () => {
+    const userEmail = user?.email || "N/A";
+    const userId = user?.id ? `#${user.id}` : "N/A";
+    const userName = displayName || "Customer";
+    const balanceStr = walletBalance;
+    const totalSpendStr = totalSpend;
+    const completedStr = String(completedOrders);
+
+    const msg = 
+`Hello PabloSMM Support,
+
+I need assistance regarding my account. Here are my details:
+
+👤 *Account Details:*
+• *Name:* ${userName}
+• *Email:* ${userEmail}
+• *User ID:* ${userId}
+• *Wallet Balance:* ${balanceStr}
+• *Total Spend:* ${totalSpendStr}
+• *Completed Orders:* ${completedStr}
+
+*Query / Message:* `;
+
+    return `https://wa.me/919473528346?text=${encodeURIComponent(msg)}`;
+  };
+
   return (
     <div className='profile-page'>
       <div className="user-container">
@@ -217,7 +243,11 @@ export default function Page() {
                     <li onClick={() => setViewMode('password')}>
                         <a><Image src="/profile/change-password.png" alt="Change Password" width={20} height={20} />Change Password</a>
                     </li>
-                    <li><Link href="/profile/support"><Image src="/profile/support.png" alt="Support" width={20} height={20} />Contact Support</Link></li>
+                    <li>
+                        <a href={getProfileWhatsappUrl()} target="_blank" rel="noopener noreferrer">
+                            <Image src="/profile/support.png" alt="Support" width={20} height={20} />Contact Support
+                        </a>
+                    </li>
                     <li><Link href="/orders"><Image src="/bottom-nav/history.png" alt="Orders History" width={20} height={20} />Orders History</Link></li>
                     <li><Link href="/wallet"><Image src="/bottom-nav/wallet.png" alt="Wallet" width={20} height={20} />Wallet</Link></li>
                 </ul>
