@@ -298,15 +298,13 @@ const QuantitySlider: React.FC<QuantitySliderProps> = ({
                   const raw = e.target.value.replace(/[^\d.]/g, "");
                   setBudgetValue(raw);
                   const newQty = getQuantityFromBudget(raw);
-                  const snapped = snapToStep(newQty);
-                  setQuantity(snapped);
-                  onChange?.(snapped);
+                  setQuantity(newQty);
+                  onChange?.(newQty);
                 }}
                 onBlur={() => {
                   const newQty = getQuantityFromBudget(budgetValue);
-                  const snapped = snapToStep(newQty);
-                  setQuantity(snapped);
-                  onChange?.(snapped);
+                  setQuantity(newQty);
+                  onChange?.(newQty);
                   setBudgetEditing(false);
                 }}
                 onKeyDown={(e) => {

@@ -380,8 +380,8 @@ const SummaryContent = () => {
 
   const groupedFiltered = useMemo(() => {
     let groups = groupServices(filtered);
-    // Hide service groups where requested quantity exceeds the maximum supported capacity
-    groups = groups.filter((g) => deferredQuantity <= g.max);
+    // Hide service groups where requested quantity does not meet minimum requirement or exceeds maximum capacity
+    groups = groups.filter((g) => deferredQuantity >= g.min && deferredQuantity <= g.max);
 
     const getMinPrice = (g: any) => {
       if (!g.variants.length) return 0;
@@ -435,17 +435,31 @@ const SummaryContent = () => {
     }
   }, [groupedFiltered, selectedServiceId]);
 
-  const min = useMemo(() => {
+  const categoryMin = useMemo(() => {
     if (selectedGroup) return selectedGroup.min;
-    if (groupedFiltered.length === 0) return 50;
-    return Math.min(...groupedFiltered.map(g => g.min));
-  }, [selectedGroup, groupedFiltered]);
+    if (baseList && baseList.length > 0) {
+      return Math.min(...baseList.map(s => s.min));
+    }
+    return 50;
+  }, [selectedGroup, baseList]);
 
-  const max = useMemo(() => {
+  const categoryMax = useMemo(() => {
     if (selectedGroup) return selectedGroup.max;
-    if (groupedFiltered.length === 0) return 50000;
-    return Math.max(...groupedFiltered.map(g => g.max));
-  }, [selectedGroup, groupedFiltered]);
+    if (baseList && baseList.length > 0) {
+      return Math.max(...baseList.map(s => s.max));
+    }
+    return 50000;
+  }, [selectedGroup, baseList]);
+
+  // Ensure quantity is at least the category minimum when entering the page
+  React.useEffect(() => {
+    if (categoryMin > 0 && quantity < categoryMin) {
+      setQuantity(categoryMin);
+    }
+  }, [categoryMin]);
+
+  const min = categoryMin;
+  const max = categoryMax;
   
   // Use explicit sellPriceInr from the mapped variant, otherwise fallback to first available service rate
   const fallbackRate = groupedFiltered[0]?.variants[0]?.sellPriceInr ?? groupedFiltered[0]?.variants[0]?.service?.ratePer1000 ?? 30;
