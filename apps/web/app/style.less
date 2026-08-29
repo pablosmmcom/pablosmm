@@ -327,7 +327,11 @@ h6 {
   background: #020203;
   -webkit-clip-path: inset(0 round 0 0 32px 32px);
   clip-path: inset(0 round 0 0 32px 32px);
-  transition: height 0.3s ease, border-radius 0.3s ease, clip-path 0.3s ease, -webkit-clip-path 0.3s ease;
+  transition:
+    height 0.3s ease,
+    border-radius 0.3s ease,
+    clip-path 0.3s ease,
+    -webkit-clip-path 0.3s ease;
 
   .navigation {
     display: flex;
@@ -576,7 +580,7 @@ h6 {
         scrollbar-width: none;
 
         .platform-card {
-          flex: 1 0 auto;
+          flex: none;
           background: #1a1a1a;
           border-radius: 12px;
           padding: 12px;
@@ -3559,7 +3563,8 @@ h6 {
   }
 }
 
-body.slider-active, body:has(.bottom-slider.visible) {
+body.slider-active,
+body:has(.bottom-slider.visible) {
   .root {
     height: 100dvh;
     border-bottom-left-radius: 0;
@@ -7015,7 +7020,9 @@ button:focus {
       -webkit-tap-highlight-color: transparent;
       user-select: none;
 
-      &:focus, &:active, &:focus-visible {
+      &:focus,
+      &:active,
+      &:focus-visible {
         outline: none !important;
         -webkit-tap-highlight-color: transparent;
       }
@@ -7082,7 +7089,9 @@ button:focus {
       -webkit-tap-highlight-color: transparent;
       user-select: none;
 
-      &:focus, &:active, &:focus-visible {
+      &:focus,
+      &:active,
+      &:focus-visible {
         outline: none !important;
         -webkit-tap-highlight-color: transparent;
       }
@@ -7125,6 +7134,7 @@ button:focus {
     flex-direction: column;
     gap: 16px;
     margin: 0 16px;
+    padding-bottom: 16px;
   }
 }
 
@@ -7277,11 +7287,12 @@ button:focus {
         display: flex;
         flex-direction: row;
         gap: 6px;
-        align-items: center;
+        align-items: flex-start;
 
         .platform-icon {
           width: 30px;
           height: 30px;
+          object-fit: contain;
         }
 
         .title {
@@ -7290,7 +7301,7 @@ button:focus {
           font-size: 0.78rem;
           margin: 0;
           line-height: 13px;
-          max-width: 104px;
+          max-width: 154px;
           text-transform: capitalize;
         }
       }
@@ -7351,6 +7362,7 @@ button:focus {
     white-space: nowrap;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    z-index: 1;
 
     &::-webkit-scrollbar {
       display: none;
@@ -7371,6 +7383,7 @@ button:focus {
       line-height: 1;
       letter-spacing: -0.3px;
       white-space: nowrap;
+      min-height: 20px;
 
       img {
         width: 12px;

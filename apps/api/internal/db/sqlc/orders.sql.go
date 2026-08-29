@@ -38,25 +38,27 @@ SELECT
 	o.status, 
 	o.created_at, 
 	COALESCE(o.provider_order_id, '')::text as provider_order_id,
-	COALESCE(so.display_id, '')::text as display_id,
-	COALESCE(so.display_name, '')::text as display_name,
+	COALESCE(pc.display_id, o.service_id)::text as display_id,
+	COALESCE(pc.name, 'Service #' || o.service_id)::text as display_name,
+	COALESCE(pc.provider_service_id, o.service_id)::text as source_service_id,
 	COALESCE(o.remains, 0)::int as remains,
 	COALESCE(o.start_count, 0)::int as start_count,
 	COALESCE(o.link, '')::text as link,
 	u.email,
 	COALESCE(o.refunded_amount, 0)::int as refunded_amount,
-	COALESCE(o.provider_order_id, '')::text as provider_order_id,
 	COALESCE(o.refills_remaining, 3)::int as refills_remaining,
-	COALESCE(so.refill_limit, 3)::int as service_refill_limit,
-	COALESCE(so.refill, false)::boolean as service_refill_enabled
+	3::int as service_refill_limit,
+	false::boolean as service_refill_enabled
 FROM orders o
-LEFT JOIN service_overrides so ON (
-	o.service_id = so.source_service_id 
-	OR split_part(o.service_id, ':', 2) = so.source_service_id
-	OR o.service_id = so.source_service_id || ':' || split_part(o.service_id, ':', 2)
-	OR split_part(o.service_id, ':', 2) = split_part(so.source_service_id, ':', 2)
-)
 JOIN users u ON o.user_id = u.id
+LEFT JOIN LATERAL (
+    SELECT name, platform, category, id::text as display_id, provider_service_id
+    FROM pablo_catalog
+    WHERE (o.service_id ~ '^[0-9]+$' AND id = o.service_id::int)
+       OR (provider_service_id = o.service_id)
+       OR (provider_id || ':' || provider_service_id = o.service_id)
+    LIMIT 1
+) pc ON true
 WHERE ($1::text IS NULL OR o.status = $1)
 AND ($2::int IS NULL OR o.user_id = $2)
 ORDER BY o.created_at DESC
@@ -77,12 +79,12 @@ type GetAdminOrdersRow struct {
 	ProviderOrderID      string             `json:"provider_order_id"`
 	DisplayID            string             `json:"display_id"`
 	DisplayName          string             `json:"display_name"`
+	SourceServiceID      string             `json:"source_service_id"`
 	Remains              int32              `json:"remains"`
 	StartCount           int32              `json:"start_count"`
 	Link                 string             `json:"link"`
 	Email                pgtype.Text        `json:"email"`
 	RefundedAmount       int32              `json:"refunded_amount"`
-	ProviderOrderID_2    string             `json:"provider_order_id_2"`
 	RefillsRemaining     int32              `json:"refills_remaining"`
 	ServiceRefillLimit   int32              `json:"service_refill_limit"`
 	ServiceRefillEnabled bool               `json:"service_refill_enabled"`
@@ -107,12 +109,12 @@ func (q *Queries) GetAdminOrders(ctx context.Context, arg GetAdminOrdersParams) 
 			&i.ProviderOrderID,
 			&i.DisplayID,
 			&i.DisplayName,
+			&i.SourceServiceID,
 			&i.Remains,
 			&i.StartCount,
 			&i.Link,
 			&i.Email,
 			&i.RefundedAmount,
-			&i.ProviderOrderID_2,
 			&i.RefillsRemaining,
 			&i.ServiceRefillLimit,
 			&i.ServiceRefillEnabled,
@@ -193,22 +195,24 @@ SELECT
 	o.status, 
 	o.created_at, 
 	o.provider_order_id,
-	COALESCE(so.display_id, '')::text as display_id,
-	COALESCE(so.display_name, '')::text as display_name,
+	COALESCE(pc.display_id, o.service_id)::text as display_id,
+	COALESCE(pc.name, 'Service #' || o.service_id)::text as display_name,
 	COALESCE(o.remains, 0)::int as remains,
 	COALESCE(o.start_count, 0)::int as start_count,
 	COALESCE(o.link, '')::text as link,
 	(SELECT COALESCE(balance, 0)::int FROM wallets WHERE user_id = o.user_id) as user_balance,
-	COALESCE(so.service_type, '')::text as service_type,
-	COALESCE(so.category, '')::text as category,
-	EXISTS(SELECT 1 FROM order_requests WHERE order_id = o.id AND request_type = 'cancel' AND status = 'pending')::boolean as pending_cancel
+	COALESCE(pc.platform, '')::text as service_type,
+	COALESCE(pc.category, '')::text as category,
+	(EXISTS(SELECT 1 FROM order_requests WHERE order_id = o.id AND request_type = 'cancel' AND status = 'pending') AND o.status NOT IN ('completed', 'canceled', 'refunded', 'failed'))::boolean as pending_cancel
 FROM orders o
-LEFT JOIN service_overrides so ON (
-	o.service_id = so.source_service_id 
-	OR split_part(o.service_id, ':', 2) = so.source_service_id
-	OR o.service_id = so.source_service_id || ':' || split_part(o.service_id, ':', 2)
-	OR split_part(o.service_id, ':', 2) = split_part(so.source_service_id, ':', 2)
-)
+LEFT JOIN LATERAL (
+    SELECT name, platform, category, id::text as display_id
+    FROM pablo_catalog
+    WHERE (o.service_id ~ '^[0-9]+$' AND id = o.service_id::int)
+       OR (provider_service_id = o.service_id)
+       OR (provider_id || ':' || provider_service_id = o.service_id)
+    LIMIT 1
+) pc ON true
 WHERE o.user_id = $1
 AND ($2::text IS NULL OR 
      ($2 = 'active' AND o.status IN ('pending', 'processing', 'submitted', 'active', 'in_progress')) OR
@@ -287,21 +291,23 @@ SELECT
 	o.status, 
 	o.created_at, 
     o.updated_at,
-	COALESCE(so.display_id, '')::text as display_id,
-	COALESCE(so.display_name, '')::text as display_name,
+	COALESCE(pc.display_id, o.service_id)::text as display_id,
+	COALESCE(pc.name, 'Service #' || o.service_id)::text as display_name,
 	COALESCE(o.remains, 0)::int as remains,
 	COALESCE(o.start_count, 0)::int as start_count,
 	COALESCE(o.link, '')::text as link,
-	COALESCE(so.service_type, '')::text as service_type,
-	COALESCE(so.category, '')::text as category,
+	COALESCE(pc.platform, '')::text as service_type,
+	COALESCE(pc.category, '')::text as category,
 	COALESCE(o.refills_remaining, 3)::int as refills_remaining
 FROM orders o
-LEFT JOIN service_overrides so ON (
-	o.service_id = so.source_service_id 
-	OR split_part(o.service_id, ':', 2) = so.source_service_id
-	OR o.service_id = so.source_service_id || ':' || split_part(o.service_id, ':', 2)
-	OR split_part(o.service_id, ':', 2) = split_part(so.source_service_id, ':', 2)
-)
+LEFT JOIN LATERAL (
+    SELECT name, platform, category, id::text as display_id
+    FROM pablo_catalog
+    WHERE (o.service_id ~ '^[0-9]+$' AND id = o.service_id::int)
+       OR (provider_service_id = o.service_id)
+       OR (provider_id || ':' || provider_service_id = o.service_id)
+    LIMIT 1
+) pc ON true
 WHERE o.id = $1 AND o.user_id = $2
 `
 

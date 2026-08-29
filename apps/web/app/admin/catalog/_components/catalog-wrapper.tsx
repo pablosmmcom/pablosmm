@@ -4,8 +4,10 @@ import * as React from "react";
 import { apiClient } from "@/lib/apiClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/admin/ui/select";
 import { Server } from "lucide-react";
-import { CatalogPicker } from "./catalog-picker";
-
+import { cn } from "@/lib/admin/utils";
+import { CatalogPicker, getStandardPlatform } from "./catalog-picker";
+import { CategoryMapper } from "./category-mapper";
+import { RawCategoryImporter } from "./raw-category-importer";
 import { CatalogManagerList } from "./catalog-manager-list";
 
 export interface SmmProvider {
@@ -29,46 +31,54 @@ export function CatalogWrapper({
 }) {
   const [providers, setProviders] = React.useState<SmmProvider[]>([]);
   const [selectedProviderKey, setSelectedProviderKey] = React.useState<string>("");
-  const [viewMode, setViewMode] = React.useState<"map" | "manage">("map");
+  const [viewMode, setViewMode] = React.useState<"map" | "raw" | "manage" | "map_categories">("map");
+  const [categoryMappings, setCategoryMappings] = React.useState<Record<string, string>>({});
+  const [taxonomyCategories, setTaxonomyCategories] = React.useState<any[]>([]);
+
+  const loadData = React.useCallback(async () => {
+    try {
+      const data = await apiClient.get<SmmProvider[]>("/admin/providers");
+      const masterProvider: SmmProvider = {
+        id: 0,
+        key: "pablosmm",
+        name: "Pablosmm (Master Catalog)",
+        api_url: "",
+        api_key: "",
+        currency: "INR",
+        is_active: true
+      };
+      setProviders([masterProvider, ...(data || [])]);
+      if (!selectedProviderKey) setSelectedProviderKey("pablosmm");
+    } catch (err) {
+      console.error("Failed to load providers", err);
+      if (!selectedProviderKey) setSelectedProviderKey("pablosmm");
+    }
+
+    try {
+      const settings = await apiClient.get<Record<string, string>>("/admin/settings");
+      if (settings && settings.admin_category_mappings) {
+        setCategoryMappings(JSON.parse(settings.admin_category_mappings));
+      }
+      if (settings && settings.catalog_taxonomy) {
+        try {
+          const parsed = JSON.parse(settings.catalog_taxonomy);
+          if (parsed?.categories && Array.isArray(parsed.categories)) {
+            setTaxonomyCategories(parsed.categories);
+          }
+        } catch (e) {}
+      }
+    } catch (err) {
+      console.error("Failed to load settings", err);
+    }
+  }, [selectedProviderKey]);
 
   React.useEffect(() => {
-    async function loadProviders() {
-      try {
-        const data = await apiClient.get<SmmProvider[]>("/admin/providers");
-        const masterProvider: SmmProvider = {
-          id: 0,
-          key: "pablosmm",
-          name: "Pablosmm (Master Catalog)",
-          api_url: "",
-          api_key: "",
-          currency: "INR",
-          is_active: true
-        };
-        const allProviders = [masterProvider, ...(data || [])];
-        setProviders(allProviders);
-        setSelectedProviderKey("pablosmm");
-      } catch (err) {
-        console.error("Failed to load providers", err);
-        const masterProvider: SmmProvider = {
-          id: 0,
-          key: "pablosmm",
-          name: "Pablosmm (Master Catalog)",
-          api_url: "",
-          api_key: "",
-          currency: "INR",
-          is_active: true
-        };
-        setProviders([masterProvider]);
-        setSelectedProviderKey("pablosmm");
-      }
-    }
-    loadProviders();
-  }, []);
+    loadData();
+  }, [loadData]);
 
   const currentProviderRawServices = React.useMemo(() => {
     if (!selectedProviderKey) return [];
 
-    // Helper to check if a service belongs to the hidden category
     const isHiddenCategory = (catStr: string) => {
       const c = (catStr || "").toUpperCase();
       return c.includes("NON WORKING") || c.includes("DON'T USE") || c.includes("DON’T USE");
@@ -76,107 +86,92 @@ export function CatalogWrapper({
 
     if (selectedProviderKey === "pablosmm") {
       const pablosmmServices = initialCatalogServices.map((cs: any) => {
-        // Find matching raw provider service to enrich details like average_time, desc, badge & stability
         const rawMatch = rawProviderServices.find((r: any) => {
           const rId = String(r.sourceServiceId || r.service || r.id || "").includes(":")
             ? String(r.sourceServiceId || r.service || r.id || "").split(":")[1]
             : String(r.sourceServiceId || r.service || r.id || "");
-          const csId = String(cs.provider_service_id || cs.id).includes(":")
-            ? String(cs.provider_service_id || cs.id).split(":")[1]
-            : String(cs.provider_service_id || cs.id);
-          return rId === csId;
+          const csId = String(cs.provider_service_id || "").includes(":")
+            ? String(cs.provider_service_id || "").split(":")[1]
+            : String(cs.provider_service_id || "");
+          return csId !== "" && rId === csId;
         });
 
-        // Parse tag-encoded fields from rawMatch.tags
-        const rawTags: string[] = rawMatch?.tags || [];
+        const effectiveTags: string[] = cs.tags && cs.tags.length > 0 ? cs.tags : (rawMatch?.tags || []);
         let parsedBadge = "auto";
         let parsedStability = "auto";
         let parsedQuality = "High Quality";
         let parsedRefillTag: string | undefined = undefined;
-        for (const t of rawTags) {
+        let parsedVariant: string | undefined = cs.variant;
+
+        for (const t of effectiveTags) {
           if (t.startsWith("badge:")) parsedBadge = t.replace("badge:", "");
           if (t.startsWith("stability:")) parsedStability = t.replace("stability:", "");
           if (t.startsWith("quality:")) parsedQuality = t.replace("quality:", "");
           if (t.startsWith("refill:")) parsedRefillTag = t.replace("refill:", "");
+          if (t.startsWith("variant:") && !parsedVariant) parsedVariant = t.replace("variant:", "");
         }
 
+        const resolvedPlatform = cs.platform || (rawMatch ? getStandardPlatform(rawMatch) : "instagram");
+        const normCat = cs.category === "save" ? "saves" : (cs.category || "followers");
+        const rawCat = rawMatch?.rawProviderCategory || rawMatch?.providerCategory || rawMatch?.category || normCat;
         return {
-          id: String(cs.provider_service_id || cs.id),
-          sourceServiceId: String(cs.provider_service_id || cs.id),
-          providerKey: cs.provider_id || "topsmm",
+          id: cs.id,
+          sourceServiceId: cs.provider_service_id || String(cs.id),
+          service: cs.provider_service_id || String(cs.id),
           name: cs.name,
+          providerName: cs.name,
+          rawProviderName: rawMatch?.name || rawMatch?.displayName || cs.name,
           displayName: cs.name,
-          providerName: rawMatch?.providerName || rawMatch?.name || cs.name,
-          platform: cs.platform,
-          category: cs.category,
-          type: cs.category,
-          variant: cs.variant_name || "Default",
-          ratePer1000: cs.sell_price_inr || rawMatch?.ratePer1000 || 0,
-          rate: cs.sell_price_inr || rawMatch?.ratePer1000 || 0,
-          min: rawMatch?.min || 10,
-          max: rawMatch?.max || 10000,
-          refill: rawMatch?.refill !== undefined ? rawMatch.refill : true,
-          cancel: rawMatch?.cancel !== undefined ? rawMatch.cancel : true,
+          variantName: cs.variant_name || "Default",
+          variant: parsedVariant || cs.variant || "any",
+          sellPriceInr: cs.sell_price_inr,
+          rate: cs.sell_price_inr,
+          ratePer1000: cs.sell_price_inr,
+          platform: resolvedPlatform,
+          category: normCat,
+          providerCategory: rawCat,
+          rawProviderCategory: rawCat,
           status: cs.is_active ? "active" : "hidden",
-          quality: parsedQuality,
-          stability: parsedStability,
+          isHidden: !cs.is_active,
+          hasPendingProviderSubmission: false,
+          isProviderSubmission: true,
+          providerKey: cs.provider_id || "topsmm",
+          refill: rawMatch?.refill,
+          cancel: rawMatch?.cancel,
+          average_time: rawMatch?.average_time,
+          desc: cs.description || rawMatch?.desc || rawMatch?.description,
+          description: cs.description || rawMatch?.description || rawMatch?.desc,
           badge: parsedBadge,
+          stability: parsedStability,
+          quality: parsedQuality,
           refillTag: parsedRefillTag,
-          average_time: rawMatch?.average_time ?? rawMatch?.averageTime,
-          averageTime: rawMatch?.averageTime ?? rawMatch?.average_time,
-          desc: rawMatch?.desc || rawMatch?.description || "",
-          description: rawMatch?.description || rawMatch?.desc || "",
-          tags: [
-            `variant_name:${cs.variant_name || "Default"}`,
-            `sell_price_inr:${cs.sell_price_inr || 0}`,
-            ...rawTags
-          ]
+          tags: effectiveTags,
         };
       });
-      return pablosmmServices.filter((s: any) => !isHiddenCategory(s.category));
+
+      return pablosmmServices;
     }
-    
-    return rawProviderServices
-      .filter((s: any) => 
-        s.providerKey === selectedProviderKey && 
-        !isHiddenCategory(s.rawProviderCategory || s.providerCategory || s.category)
-      )
-      .map((svc: any) => {
-        const rawTags: string[] = svc.tags || [];
-        let parsedBadge = (svc as any).badge || "auto";
-        let parsedStability = (svc as any).stability || "auto";
-        let parsedQuality = (svc as any).quality || "High Quality";
-        let parsedRefillTag: string | undefined = (svc as any).refillTag;
 
-        for (const t of rawTags) {
-          if (t.startsWith("badge:")) parsedBadge = t.replace("badge:", "");
-          if (t.startsWith("stability:")) parsedStability = t.replace("stability:", "");
-          if (t.startsWith("quality:")) parsedQuality = t.replace("quality:", "");
-          if (t.startsWith("refill:")) parsedRefillTag = t.replace("refill:", "");
-          if (t.startsWith("proposed_refill:")) parsedRefillTag = t.replace("proposed_refill:", "");
-        }
+    return rawProviderServices.filter((s: any) => {
+      const pKey = (s.providerKey || s.provider_id || "topsmm").toLowerCase();
+      const cat = s.rawProviderCategory || s.providerCategory || s.category || "";
+      return pKey === selectedProviderKey.toLowerCase() && !isHiddenCategory(cat);
+    });
+  }, [selectedProviderKey, initialCatalogServices, rawProviderServices]);
 
-        return {
-          ...svc,
-          badge: parsedBadge,
-          stability: parsedStability,
-          quality: parsedQuality,
-          refillTag: parsedRefillTag
-        };
-      });
-  }, [rawProviderServices, initialCatalogServices, selectedProviderKey]);
-
-  const selectedProviderName = providers.find(p => p.key === selectedProviderKey)?.name || selectedProviderKey;
-  const selectedProviderCurrency = providers.find(p => p.key === selectedProviderKey)?.currency || "INR";
+  const selectedProviderName = providers.find(p => p.key === selectedProviderKey)?.name || "TOPSMM";
+  const selectedProviderCurrency = providers.find(p => p.key === selectedProviderKey)?.currency || "USD";
 
   return (
-    <div className="flex flex-col h-full space-y-4">
-      {/* Admin Top Bar */}
-      <div className="flex items-center gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm mx-4 mt-4">
-        <Server className="w-5 h-5 text-gray-500" />
-        <span className="text-sm font-['GPB'] text-gray-700">Select Provider Source:</span>
-        <Select value={selectedProviderKey} onValueChange={setSelectedProviderKey} disabled={viewMode === "manage"}>
-          <SelectTrigger className="w-64 font-['GM'] h-10 bg-[#F7F8F9] border-gray-200 disabled:opacity-50">
+    <div className="flex-1 w-full h-full flex flex-col font-['GM']">
+      {/* Top Header Bar */}
+      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Server className="w-5 h-5 text-gray-500" />
+          <span className="text-sm font-['GPB'] text-gray-700">SMM Provider:</span>
+        </div>
+        <Select value={selectedProviderKey} onValueChange={setSelectedProviderKey}>
+          <SelectTrigger className="w-64 h-9 bg-gray-50 border-gray-200 rounded-lg text-sm font-['GM']">
             <SelectValue placeholder="Select a provider" />
           </SelectTrigger>
           <SelectContent>
@@ -190,21 +185,49 @@ export function CatalogWrapper({
         <div className="ml-auto flex items-center bg-gray-100 p-1 rounded-lg">
           <button
             onClick={() => setViewMode("map")}
-            className={`px-4 py-1.5 text-sm font-['GPB'] rounded-md transition-colors ${viewMode === "map" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+            className={cn("px-4 py-1.5 text-sm font-['GPB'] rounded-md transition-colors", viewMode === "map" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700")}
           >
             Map Services
           </button>
           <button
-            onClick={() => setViewMode("manage")}
-            className={`px-4 py-1.5 text-sm font-['GPB'] rounded-md transition-colors ${viewMode === "manage" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+            onClick={() => setViewMode("map_categories")}
+            className={cn("px-4 py-1.5 text-sm font-['GPB'] rounded-md transition-colors", viewMode === "map_categories" ? "bg-indigo-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700")}
           >
-            Manage Catalog
+            Categories Mapper
+          </button>
+          <button
+            onClick={() => setViewMode("raw")}
+            className={cn("px-4 py-1.5 text-sm font-['GPB'] rounded-md transition-colors", viewMode === "raw" ? "bg-indigo-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700")}
+          >
+            ⚡ Raw Importer
+          </button>
+          <button
+            onClick={() => setViewMode("manage")}
+            className={cn("px-4 py-1.5 text-sm font-['GPB'] rounded-md transition-colors", viewMode === "manage" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700")}
+          >
+            Manage Catalog ({initialCatalogServices.length})
           </button>
         </div>
       </div>
 
       {/* Main Workspace */}
-      {viewMode === "map" ? (
+      {viewMode === "map_categories" ? (
+        <div className="flex-1 w-full relative overflow-y-auto">
+          <CategoryMapper 
+            rawServices={rawProviderServices.filter((s: any) => (s.providerKey || s.provider_id || "topsmm").toLowerCase() === (selectedProviderKey === "pablosmm" ? "topsmm" : selectedProviderKey).toLowerCase())} 
+            initialMappings={categoryMappings}
+            taxonomyCategories={taxonomyCategories}
+            onMappingsSaved={(mappings) => setCategoryMappings(mappings)}
+          />
+        </div>
+      ) : viewMode === "raw" ? (
+        <div className="flex-1 w-full relative overflow-y-auto">
+          <RawCategoryImporter 
+            rawServices={rawProviderServices.filter((s: any) => (s.providerKey || s.provider_id || "topsmm").toLowerCase() === (selectedProviderKey === "pablosmm" ? "topsmm" : selectedProviderKey).toLowerCase())} 
+            onRefresh={onRefresh} 
+          />
+        </div>
+      ) : viewMode === "map" ? (
         selectedProviderKey && (
           <div className="flex-1 w-full relative">
             <CatalogPicker 
@@ -213,7 +236,9 @@ export function CatalogWrapper({
               providerName={selectedProviderName}
               providerKey={selectedProviderKey}
               providerCurrency={selectedProviderCurrency}
+              categoryMappings={categoryMappings}
               onRefresh={onRefresh}
+              onTaxonomyChange={(cats: any[]) => setTaxonomyCategories(cats)}
               key={selectedProviderKey} // Force remount on provider change
             />
           </div>

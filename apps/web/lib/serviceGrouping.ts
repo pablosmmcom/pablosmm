@@ -58,10 +58,15 @@ export function groupServices(services: NormalizedSmmService[]): ServiceGroup[] 
     // We STRICTLY group by the original SERVICE ID so each imported service remains a distinct separate card!
     const groupKey = service.id.toString();
     
-    // We build a beautiful title for the card by combining the category and variant
-    let cardTitle = cleanedFallback.groupName;
-    if (variantName && variantName !== "Standard" && variantName !== "No Refill") {
-        cardTitle = `${cleanedFallback.groupName} — ${variantName}`;
+    // Prefer explicit displayName set by admin in catalog, otherwise use cleaned fallback
+    const groupBaseName = (service.displayName && service.displayName.trim() !== "")
+      ? service.displayName.trim()
+      : cleanedFallback.groupName;
+
+    // We build a beautiful title for the card by combining the group name and variant
+    let cardTitle = groupBaseName;
+    if (variantName && variantName !== "Standard" && variantName !== "No Refill" && !groupBaseName.toLowerCase().includes(variantName.toLowerCase())) {
+        cardTitle = `${groupBaseName} — ${variantName}`;
     }
 
     if (!groupsMap.has(groupKey)) {

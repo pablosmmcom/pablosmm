@@ -12,6 +12,7 @@ import HelpCard from "@/components/layout/HelpCard";
 import { getApiBaseUrl } from "@/lib/config";
 import { useNormalizedServices } from "@/lib/useServices";
 import { useAuth } from "@/components/providers/auth-provider";
+import { getServiceTags } from "@/lib/serviceTags";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Loader2 } from "lucide-react";
@@ -95,23 +96,71 @@ export default function OrderDetailPage() {
     }
   };
 
+  const matchingService = order 
+    ? services.find((s) => 
+        String(s.id) === String(order.serviceId) || 
+        String(s.id) === String(order.displayId) || 
+        (s.sourceServiceId && s.sourceServiceId === order.serviceId) ||
+        (s.sourceServiceId && (order as any).sourceServiceId && s.sourceServiceId === (order as any).sourceServiceId)
+      ) 
+    : null;
+
+  const serviceTagData = matchingService ? getServiceTags(matchingService) : null;
+
+  // Check if it's lifetime refill from tags or description
+  const isLifetimeRefill = Boolean(
+    serviceTagData?.refillLabel?.toLowerCase().includes("lifetime") ||
+    serviceTagData?.refillLabel?.toLowerCase().includes("permanent") ||
+    matchingService?.description?.toLowerCase().includes("lifetime") ||
+    matchingService?.tags?.some((t: string) => t.toLowerCase().includes("refill:lifetime"))
+  );
+
+  // Extract refill days from tag (e.g. "refill:60 Days", "60 Days Refill" -> 60)
+  const explicitRefillTag = matchingService?.tags?.find((t: string) => t.toLowerCase().startsWith("refill:"));
+  const refillText = explicitRefillTag 
+    ? explicitRefillTag.replace(/refill:/i, "") 
+    : (serviceTagData?.refillLabel || matchingService?.description || "");
+
+  const refillDaysMatch = refillText.match(/(\d+)\s*(?:days?|d)?/i);
+  const parsedDays = refillDaysMatch ? parseInt(refillDaysMatch[1], 10) : 0;
+
+  const refillDays = isLifetimeRefill ? 99999 : (parsedDays > 0 ? parsedDays : (matchingService?.refill ? 30 : 0));
+
+  const isExplicitNoRefill = 
+    serviceTagData?.refill === "No Refill" ||
+    serviceTagData?.refillLabel?.toLowerCase().includes("no refill") ||
+    (explicitRefillTag && explicitRefillTag.toLowerCase().includes("no refill"));
+
+  const hasRefill = Boolean(
+    !isExplicitNoRefill && 
+    (matchingService?.refill || isLifetimeRefill || refillDays > 0 || serviceTagData?.refill === "Available")
+  );
+
+  const refillDisplayLabel = isLifetimeRefill 
+    ? "Lifetime Refill" 
+    : (refillDays > 0 ? `${refillDays} days refill` : "Refill Protection");
+
+  const orderDate = order?.date ? new Date(order.date) : new Date();
+  const expiryDate = new Date(orderDate);
+  if (!isLifetimeRefill && refillDays > 0) {
+    expiryDate.setDate(expiryDate.getDate() + refillDays);
+  }
+  const now = new Date();
+  const daysLeft = isLifetimeRefill 
+    ? 99999 
+    : Math.max(0, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 3600 * 24)));
+
+  const isActiveRefill = isLifetimeRefill ? true : (daysLeft > 0);
+
   const handleRefill = async () => {
     if (!order) return;
     
-    // Check constraints here so we can show user-friendly toasts instead of a dead button
-    const orderDate = order?.date ? new Date(order.date) : new Date();
-    const expiryDate = new Date(orderDate);
-    expiryDate.setDate(expiryDate.getDate() + 30);
-    const now = new Date();
-    const daysLeft = Math.max(0, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 3600 * 24)));
-    const matchingService = services.find((s) => s.id === order.serviceId || s.sourceServiceId === order.serviceId);
-    
-    if (!matchingService?.refill) {
+    if (!hasRefill) {
       toast.error("This service does not support refills.");
       return;
     }
-    if (daysLeft <= 0) {
-      toast.error("Refill period (30 days) has expired for this order.");
+    if (!isLifetimeRefill && daysLeft <= 0) {
+      toast.error(`Refill period (${refillDays} days) has expired for this order.`);
       return;
     }
     if (order.pendingRefill) {
@@ -175,7 +224,6 @@ export default function OrderDetailPage() {
   const percent = Math.min(100, Math.round((delivered / order.quantity) * 100)) || 0;
   const expected = order.startCount + order.quantity;
   
-  const matchingService = order ? services.find((s) => s.id === order.serviceId || s.sourceServiceId === order.serviceId) : null;
   const rawServiceName = order.displayName || matchingService?.displayName || matchingService?.providerName || order.serviceName || "";
   
   const getCleanServiceName = () => {
@@ -233,18 +281,20 @@ export default function OrderDetailPage() {
     calculatedRatePer1000Inr = ((order.charge || order.amount) / order.quantity) * 1000;
   }
   const getStatusMessage = (status: string) => {
+    const s = (status || "").toLowerCase();
+    if (s === "completed") return "Your order has been completed!";
+    if (s === "canceled") return "Your order was canceled.";
+    if (s === "refunded") return "Your order was refunded.";
+    if (s === "failed") return "Your order failed.";
+    if (s === "partial") return "Your order was partially completed.";
     if (order.pendingCancel) {
       return "Your order is under cancellation! The amount will be automatically added to your wallet once it has been cancelled.";
     }
-    switch (status) {
-      case "completed": return "Your order has been completed!";
+    switch (s) {
       case "active":
       case "processing":
       case "in_progress": return "Your order is under processing!";
       case "pending": return "Your order has been placed and is pending.";
-      case "partial": return "Your order was partially completed.";
-      case "canceled": return "Your order was canceled.";
-      case "refunded": return "Your order was refunded.";
       default: return `Your order is currently ${status}`;
     }
   };
@@ -530,116 +580,117 @@ export default function OrderDetailPage() {
         />
       </div>
 
-      {/* Service details card */}
-      {(() => {
-        // Refill logic
-        const orderDate = order?.date ? new Date(order.date) : new Date();
-        const expiryDate = new Date(orderDate);
-        expiryDate.setDate(expiryDate.getDate() + 30); // Default 30 days
-        const now = new Date();
-        const daysLeft = Math.max(0, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 3600 * 24)));
-        const isActiveRefill = matchingService?.refill && daysLeft > 0;
-
-        return (
-          <>
-            {/* Refill Card */}
-            {matchingService?.refill && (matchingService?.refillLimit === undefined || matchingService?.refillLimit > 0) && (
-              <div className="refill-card">
-                <div className="refill-card-top">
-                  <div className="refill-info-group">
-                    <Image src="/orders/heart.png" alt="Refill" width={20} height={20} />
-                    <div className="refill-text-col">
-                      <div className="label">Refill Protection</div>
-                      <div className="value">30 days refill</div>
-                    </div>
-                  </div>
-                  <div className={`status-badge`}>
-                    <div className={`glow ${isActiveRefill ? 'active' : 'danger'}`}></div>
-                    <span className={isActiveRefill ? 'active' : 'danger'}>{isActiveRefill ? 'Active' : 'Expired'}</span>
-                  </div>
-                </div>
-
-                <div className="refill-details-row">
-                  <div className="item">
-                    <div className="icon-wrapper">
-                      <Image src="/orders/expire.png" alt="Refill" width={16} height={16} />
-                    </div>
-                    <div className="item-detail-wrapper">
-                      <span>Expires in</span>
-                      <p>{daysLeft} days</p>
-                    </div>
-                  </div>
-
-                  <div className="item">
-                    <div className="icon-wrapper">
-                      <Image src="/orders/left.png" alt="Refill" width={16} height={16} />
-                    </div>
-                    <div className="item-detail-wrapper">
-                      <span>Refill Left</span>
-                      <p>{order?.refillsRemaining ?? 3} Refills</p>
-                    </div>
-                  </div>
-
-                  <div className="item">
-                    <div className="icon-wrapper">
-                      <Image src="/orders/calender.png" alt="Refill" width={16} height={16} />
-                    </div>
-                    <div className="item-detail-wrapper">
-                      <span>Valid till</span>
-                      <p>{format(expiryDate, "d MMMM, yyyy")}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="refill-action-row">
-                  <button 
-                    className='request-refill-btn' 
-                    disabled={refilling} 
-                    onClick={handleRefill}
-                  >
-                    {refilling ? (
-                      <Loader2 className="animate-spin" size={16} style={{ marginRight: 8 }} />
-                    ) : (
-                      <Image src="/orders/request-refill.png" alt="Request Refill" width={16} height={16} />
-                    )}
-                    {order?.pendingRefill ? 'Refill Requested' : refilling ? 'Requesting...' : 'Request Refill'}
-                  </button>
-                  <p className="note"><span>NOTE: </span>Refill topups automatically every month</p>
-                </div>    
+      {/* Refill Card */}
+      {hasRefill && (
+        <div className="refill-card">
+          <div className="refill-card-top">
+            <div className="refill-info-group">
+              <Image src="/orders/heart.png" alt="Refill" width={20} height={20} />
+              <div className="refill-text-col">
+                <div className="label">Refill Protection</div>
+                <div className="value">{refillDisplayLabel}</div>
               </div>
-            )}
+            </div>
+            <div className={`status-badge`}>
+              <div className={`glow ${isActiveRefill ? 'active' : 'danger'}`}></div>
+              <span className={isActiveRefill ? 'active' : 'danger'}>{isActiveRefill ? 'Active' : 'Expired'}</span>
+            </div>
+          </div>
 
-            <ServiceDetailsCard 
-              id={order.displayId || (order.serviceId ? order.serviceId.split(':').pop() : '')}
-              serviceName={cleanServiceName}
-              tags={[
-                { label: matchingService?.refill ? "Refill available" : "No Refill", status: matchingService?.refill ? "success" : "danger", active: matchingService?.refill },
-                { label: matchingService?.cancel ? "Cancel Available" : "Cancel Unavailable", status: matchingService?.cancel ? "success" : "danger", active: matchingService?.cancel },
-                { label: matchingService?.dripfeed ? "Dripfeed Available" : "Dripfeed Unavailable", status: matchingService?.dripfeed ? "success" : "danger", active: matchingService?.dripfeed }
-              ]}
-              details={{
-                startTime: "Instant",
-                startTimeSubtitle: "0-10 Minutes",
-                speed: "Dynamic",
-                speedSubtitle: "Avg. Delivery Speed",
-                completeTime: matchingService?.averageTime ? `${Math.round(matchingService.averageTime / 60)} mins` : "~45 mins",
-                completeTimeSubtitle: "Estimated",
-                refillDuration: matchingService?.refill ? "30 Days" : "None",
-                refillDurationSubtitle: matchingService?.refill && matchingService?.refillLimit !== undefined && matchingService?.refillLimit > 0 ? `${matchingService.refillLimit} times/mo` : (matchingService?.refill ? "Unlimited/Custom" : "No refill"),
-                minOrder: matchingService?.min ? matchingService.min.toLocaleString() : "50",
-                minOrderSubtitle: "Minimum Quantity",
-                maxOrder: matchingService?.max ? matchingService.max.toLocaleString() : "50,000",
-                maxOrderSubtitle: "Maximum Quantity",
-                rate: calculatedRatePer1000Inr ? convertPrice(calculatedRatePer1000Inr) : "$0.00",
-                rateSubtitle: "Per 1000 items",
-                category: order.category || "Bestselling",
-                categorySubtitle: "Service Category",
-              }}
-              description={matchingService?.description || matchingService?.displayDescription || `High quality service. Recommended for all types of accounts.`}
-            />
-          </>
-        );
-      })()}
+          <div className="refill-details-row">
+            <div className="item">
+              <div className="icon-wrapper">
+                <Image src="/orders/expire.png" alt="Refill" width={16} height={16} />
+              </div>
+              <div className="item-detail-wrapper">
+                <span>Expires in</span>
+                <p>{isLifetimeRefill ? "Lifetime" : `${daysLeft} days`}</p>
+              </div>
+            </div>
+
+            <div className="item">
+              <div className="icon-wrapper">
+                <Image src="/orders/left.png" alt="Refill" width={16} height={16} />
+              </div>
+              <div className="item-detail-wrapper">
+                <span>Refill Left</span>
+                <p>{order?.refillsRemaining ?? 3} Refills</p>
+              </div>
+            </div>
+
+            <div className="item">
+              <div className="icon-wrapper">
+                <Image src="/orders/calender.png" alt="Refill" width={16} height={16} />
+              </div>
+              <div className="item-detail-wrapper">
+                <span>Valid till</span>
+                <p>{isLifetimeRefill ? "Lifetime" : format(expiryDate, "d MMMM, yyyy")}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="refill-action-row">
+            <button 
+              className='request-refill-btn' 
+              disabled={refilling || (!isActiveRefill && !isLifetimeRefill)} 
+              onClick={handleRefill}
+            >
+              {refilling ? (
+                <Loader2 className="animate-spin" size={16} style={{ marginRight: 8 }} />
+              ) : (
+                <Image src="/orders/request-refill.png" alt="Request Refill" width={16} height={16} />
+              )}
+              {order?.pendingRefill ? 'Refill Requested' : refilling ? 'Requesting...' : 'Request Refill'}
+            </button>
+            <p className="note">
+              <span>NOTE: </span>
+              {isLifetimeRefill ? "Lifetime refill guarantee applies to this order" : "Refill topups automatically every month"}
+            </p>
+          </div>    
+        </div>
+      )}
+
+      {/* Service details card */}
+      <ServiceDetailsCard 
+        id={order.displayId || (order.serviceId ? order.serviceId.split(':').pop() : '')}
+        serviceName={cleanServiceName}
+        tags={[
+          { 
+            label: hasRefill ? (isLifetimeRefill ? "Lifetime Refill" : `${refillDays} Days Refill`) : "No Refill", 
+            status: hasRefill ? "success" : "danger", 
+            active: hasRefill 
+          },
+          { 
+            label: serviceTagData?.drop === "Non Drop" ? "Non Drop" : (serviceTagData?.drop === "High Drop" ? "High Drop" : "Low Drop"), 
+            status: serviceTagData?.drop === "Non Drop" ? "success" : "danger", 
+            active: true 
+          },
+          { 
+            label: matchingService?.cancel ? "Cancel Available" : "Cancel Unavailable", 
+            status: matchingService?.cancel ? "success" : "danger", 
+            active: matchingService?.cancel 
+          }
+        ]}
+        details={{
+          startTime: "Instant",
+          startTimeSubtitle: "0-10 Minutes",
+          speed: serviceTagData?.speed || "Fast",
+          speedSubtitle: "Avg. Delivery Speed",
+          completeTime: matchingService?.averageTime ? `${Math.round(matchingService.averageTime / 60)} mins` : "~45 mins",
+          completeTimeSubtitle: "Estimated",
+          refillDuration: hasRefill ? (isLifetimeRefill ? "Lifetime" : `${refillDays} Days`) : "None",
+          refillDurationSubtitle: hasRefill && matchingService?.refillLimit !== undefined && matchingService?.refillLimit > 0 ? `${matchingService.refillLimit} times/mo` : (hasRefill ? "Unlimited/Custom" : "No refill"),
+          minOrder: matchingService?.min ? matchingService.min.toLocaleString() : "50",
+          minOrderSubtitle: "Minimum Quantity",
+          maxOrder: matchingService?.max ? matchingService.max.toLocaleString() : "50,000",
+          maxOrderSubtitle: "Maximum Quantity",
+          rate: calculatedRatePer1000Inr ? convertPrice(calculatedRatePer1000Inr) : "$0.00",
+          rateSubtitle: "Per 1000 items",
+          category: order.category || "Bestselling",
+          categorySubtitle: "Service Category",
+        }}
+        description={matchingService?.description || matchingService?.displayDescription || `High quality service. Recommended for all types of accounts.`}
+      />
 
       <HelpCard 
         onCancel={handleCancel} 

@@ -131,44 +131,79 @@ const getVariantLabel = (v: string, platform?: string, serviceType?: string): st
 
 const VariantSelector: React.FC<VariantSelectorProps> = ({ platform, serviceType, activeVariant, onVariantChange }) => {
   const { services } = useNormalizedServices();
+  const [taxonomyCategories, setTaxonomyCategories] = React.useState<any[]>([]);
+
+  // Load taxonomy from public /api/taxonomy
+  React.useEffect(() => {
+    fetch('/api/taxonomy')
+      .then((res) => res.json())
+      .then((data: any) => {
+        if (data?.categories && Array.isArray(data.categories)) {
+          setTaxonomyCategories(data.categories);
+        }
+      })
+      .catch((err) => console.warn('Failed to load taxonomy in VariantSelector', err));
+  }, []);
 
   const variants = useMemo(() => {
-    // Specific platform rules
-    if (platform === 'instagram' && serviceType === 'followers') return ['any', 'channel'] as Variant[];
-    if (platform === 'instagram' && serviceType === 'likes') return ['post', 'reel', 'story', 'comments'] as Variant[];
-    if (platform === 'instagram' && serviceType === 'views') return ['reel', 'post', 'story', 'dashboard'] as Variant[];
-    if (platform === 'instagram' && serviceType === 'comments') return ['custom', 'random'] as Variant[];
+    const sTypeStr = String(serviceType).toLowerCase();
+    // 1. Check taxonomy first
+    const catObj = taxonomyCategories.find(
+      (c) => c.platformId === platform && (
+        c.id === sTypeStr ||
+        (c.id === 'followers' && sTypeStr === 'subscribers') ||
+        (c.id === 'page_followers' && sTypeStr === 'followers') ||
+        (c.id === 'saves' && sTypeStr === 'save') ||
+        (c.id === 'shares' && sTypeStr === 'repost')
+      )
+    );
+    if (catObj) {
+      if (catObj.subcategories && Array.isArray(catObj.subcategories) && catObj.subcategories.length > 0) {
+        return catObj.subcategories.map((s: any) => s.id as Variant);
+      }
+      // If taxonomy defines this category but no subcategories are created for it, return empty array so subcategory section is hidden
+      return [] as Variant[];
+    }
 
-    if (platform === 'youtube' && serviceType === 'views') return ['video', 'short', 'live', 'adword'] as Variant[];
-    if (platform === 'youtube' && serviceType === 'likes') return ['video', 'short', 'community'] as Variant[];
-
-    if (platform === 'telegram' && serviceType === 'followers') return ['any', 'group', 'premium'] as Variant[];
-    if (platform === 'telegram' && serviceType === 'views') return ['post', 'future'] as Variant[];
-
-    if (platform === 'facebook' && serviceType === 'views') return ['video', 'reel', 'story', 'live'] as Variant[];
-    if (platform === 'tiktok' && serviceType === 'views') return ['video', 'live'] as Variant[];
-    if (platform === 'x' && serviceType === 'views') return ['tweet', 'video'] as Variant[];
-
+    // 2. Fallback only if taxonomy hasn't loaded or isn't set up yet
     const set = new Set<Variant>();
     for (const s of services) {
-      if (s.platform === platform && s.type === serviceType) set.add(s.variant);
+      if (String(s.platform) === String(platform) && String(s.category || s.type) === String(serviceType)) {
+        if (s.variant && s.variant.trim() !== '') {
+          set.add(s.variant as Variant);
+        }
+      }
     }
 
     const arr = Array.from(set);
     arr.sort((a, b) => VARIANT_ORDER.indexOf(a) - VARIANT_ORDER.indexOf(b));
     return arr as Variant[];
-  }, [services, platform, serviceType]);
+  }, [taxonomyCategories, services, platform, serviceType]);
 
-  // Reset invalid active variant
+  // Reset invalid active variant - ensure a valid variant is always mandatory and selected
   useEffect(() => {
-    if (variants.length > 0 && !variants.includes(activeVariant)) {
-      onVariantChange(variants[0]);
+    if (variants.length > 0) {
+      if (!activeVariant || !variants.includes(activeVariant)) {
+        onVariantChange(variants[0]);
+      }
+    } else if (activeVariant !== 'any') {
+      onVariantChange('any');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platform, serviceType, variants.length]);
+  }, [platform, serviceType, variants, activeVariant, onVariantChange]);
 
   // If there is 1 or 0 variants available, hide this section completely so "Any" doesn't appear disconnected
   if (variants.length <= 1) return null;
+
+  const sTypeStr = String(serviceType).toLowerCase();
+  const currentCatObj = taxonomyCategories.find(
+    (c) => c.platformId === platform && (
+      c.id === sTypeStr ||
+      (c.id === 'followers' && sTypeStr === 'subscribers') ||
+      (c.id === 'page_followers' && sTypeStr === 'followers') ||
+      (c.id === 'saves' && sTypeStr === 'save') ||
+      (c.id === 'shares' && sTypeStr === 'repost')
+    )
+  );
 
   return (
     <div className="platform-container">
@@ -177,8 +212,9 @@ const VariantSelector: React.FC<VariantSelectorProps> = ({ platform, serviceType
         <h3>Choose Sub-Category / Option</h3>
       </div>
       <div className="platforms">
-        {variants.map((v) => {
-          const label = getVariantLabel(v, platform, serviceType);
+        {variants.map((v: Variant) => {
+          const subObj = currentCatObj?.subcategories?.find((s: any) => s.id === v);
+          const label = subObj ? subObj.name : getVariantLabel(v, platform, serviceType);
           const isActive = activeVariant === v;
           return (
             <div

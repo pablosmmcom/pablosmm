@@ -32,6 +32,7 @@ import {
   Edit3,
   SlidersHorizontal,
   Wand2,
+  CircleDashed,
 } from "lucide-react";
 import { cleanServiceName } from "@/lib/serviceNameSanitizer";
 import { getServiceTags } from "@/lib/serviceTags";
@@ -43,6 +44,7 @@ import { Badge } from "@/components/admin/ui/badge";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/admin/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/admin/ui/select";
 import { Label } from "@/components/admin/ui/label";
+import { Textarea } from "@/components/admin/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -55,18 +57,27 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/apiClient";
 import { useCurrency } from "@/components/layout/CurrencyProvider";
 import { AdminSubmissionsView } from "@/app/admin/providers/verify/_components/admin-submissions-view";
+import { TaxonomyManagerModal, CategoryItem, INITIAL_DEFAULT_CATEGORIES } from "./taxonomy-manager-modal";
 
 export interface ServiceItem {
   id: string;
+  service?: string;
+  provider_service_id?: string;
   sourceServiceId: string;
   name?: string;
   providerName?: string;
+  rawProviderName?: string;
   category?: string;
   providerCategory?: string;
   rawProviderCategory?: string;
   platform: string;
   type?: string;
   variant?: string;
+  variantName?: string;
+  badge?: string;
+  stability?: string;
+  quality?: string;
+  refillTag?: string;
   ratePer1000: number;
   rate?: any;
   min: number;
@@ -76,8 +87,6 @@ export interface ServiceItem {
   status?: "active" | "hidden" | "disabled";
   isHidden?: boolean;
   displayName?: string;
-  quality?: string;
-  refillTag?: string;
   description?: string;
   displayDescription?: string;
   hasPendingProviderSubmission?: boolean;
@@ -152,10 +161,11 @@ function getStabilityTier(svc: any): StabilityTier {
   const platform = (svc.platform || "").toLowerCase();
   const thresholds = PLATFORM_THRESHOLDS[platform] || PLATFORM_THRESHOLDS.default;
 
+  const isYoutube = platform === "youtube";
   if (minutes <= thresholds.fast)   return STABILITY_TIERS.fast;
   if (minutes <= thresholds.normal) return STABILITY_TIERS.normal;
   if (minutes <= thresholds.slow)   return STABILITY_TIERS.slow;
-  return STABILITY_TIERS.unstable;
+  return isYoutube ? STABILITY_TIERS.slow : STABILITY_TIERS.unstable;
 }
 
 function formatAvgTime(svc: any): string {
@@ -372,6 +382,7 @@ const STANDARD_CATEGORIES: Record<string, { id: string; name: string }[]> = {
   facebook: [
     { id: "followers", name: "Page Followers & Likes" },
     { id: "likes", name: "Post Likes & Reactions" },
+    { id: "reactions", name: "Post & Story Reactions" },
     { id: "views", name: "Video & Reel Views" },
     { id: "comments", name: "Comments" },
     { id: "shares", name: "Shares" },
@@ -439,44 +450,111 @@ interface ProviderPickerV3Props {
 }
 
 
-function getStandardCategory(item: any, currentSelectedCategory?: string): string {
-  const cat = String(item.type || item.category || "").toLowerCase();
-  const STANDARD = ["followers", "likes", "views", "comments", "shares", "story", "reels", "subscribers", "members", "reactions", "mentions"];
-  
-  if (STANDARD.includes(cat)) {
-    return cat;
-  }
-  
-  const text = `${item.category || ''} ${item.type || ''} ${item.name || ''} ${item.displayName || ''} ${item.providerName || ''} ${item.rawProviderCategory || ''}`.toLowerCase();
-  if (text.includes('like')) return 'likes';
-  if (text.includes('view') || text.includes('reel') || text.includes('video') || text.includes('impression')) return 'views';
-  if (text.includes('comment')) return 'comments';
-  if (text.includes('story') || text.includes('stories')) return 'story';
-  if (text.includes('share') || text.includes('repost') || text.includes('retweet')) return 'shares';
-  if (text.includes('follower') || text.includes('member') || text.includes('subscriber')) return 'followers';
+export function isCategoryMatch(serviceCat: string | undefined, selectedCat: string | undefined, platform?: string): boolean {
+  if (!serviceCat || !selectedCat) return false;
+  const s = serviceCat.toLowerCase().trim();
+  const target = selectedCat.toLowerCase().trim();
+  if (s === target) return true;
 
+  // Handle YouTube subscriber vs follower alias (taxonomy button id is 'followers' named 'Subscribers')
+  if (platform === "youtube" && (s === "followers" || s === "subscribers") && (target === "followers" || target === "subscribers")) {
+    return true;
+  }
+  // Handle Facebook page_followers vs followers alias
+  if (platform === "facebook" && (s === "followers" || s === "page_followers") && (target === "followers" || target === "page_followers")) {
+    return true;
+  }
+
+  // Singular / plural matches for the same category name (never merge repost and shares)
+  if (s === "save" && target === "saves") return true;
+  if (s === "saves" && target === "save") return true;
+  if (s === "repost" && target === "reposts") return true;
+  if (s === "reposts" && target === "repost") return true;
+  if (s === "shares" && target === "share") return true;
+  if (s === "share" && target === "shares") return true;
+  if (s === "likes" && target === "like") return true;
+  if (s === "like" && target === "likes") return true;
+  if (s === "views" && target === "view") return true;
+  if (s === "view" && target === "views") return true;
+  if (s === "comments" && target === "comment") return true;
+  if (s === "comment" && target === "comments") return true;
+
+  return false;
+}
+
+export function getMappedCategory(
+  categoryMappings: Record<string, string>,
+  platform: string,
+  rawCat: string
+): string | undefined {
+  if (!categoryMappings || !rawCat) return undefined;
+  
+  const clean = rawCat.trim();
+  if (categoryMappings[`${platform}:${clean}`]) return categoryMappings[`${platform}:${clean}`];
+  if (categoryMappings[`${platform}: ${clean}`]) return categoryMappings[`${platform}: ${clean}`];
+  
+  const decoded = decodeHtml(clean).trim();
+  if (categoryMappings[`${platform}:${decoded}`]) return categoryMappings[`${platform}:${decoded}`];
+  if (categoryMappings[`${platform}: ${decoded}`]) return categoryMappings[`${platform}: ${decoded}`];
+
+  const prefix = `${platform.toLowerCase()}:`;
+  for (const [k, v] of Object.entries(categoryMappings)) {
+    const kLower = k.toLowerCase().trim();
+    if (kLower.startsWith(prefix)) {
+      const rest = kLower.slice(prefix.length).trim();
+      if (rest === clean.toLowerCase() || rest === decoded.toLowerCase()) {
+        return v;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function getStandardCategory(item: any, currentSelectedCategory?: string): string {
+  const cat = String(item?.category || item?.type || "").toLowerCase().trim();
+  if (cat) return cat;
   return currentSelectedCategory || "followers";
 }
 
-function getStandardPlatform(item: any, currentSelectedPlatform?: string): string {
+export function getStandardPlatform(item: any, currentSelectedPlatform?: string): string {
+  // Always inspect raw provider service name & raw category first to prevent any cross-platform bleeding
+  const rawText = `${item.rawProviderName || ''} ${item.providerName || ''} ${item.rawProviderCategory || ''} ${item.providerCategory || ''}`.toLowerCase();
+  
+  if (/\b(snapchat|snap)\b/.test(rawText)) return 'snapchat';
+  if (/\b(spotify)\b/.test(rawText)) return 'spotify';
+  if (/\b(whatsapp|wa)\b/.test(rawText)) return 'whatsapp';
+  if (/\b(telegram|tg|channel members?|group members?)\b/.test(rawText)) return 'telegram';
+  if (/\b(youtube|yt|subscriber|subscribers|shorts)\b/.test(rawText)) return 'youtube';
+  if (/\b(facebook|fb|page follower|page followers)\b/.test(rawText)) return 'facebook';
+  if (/\b(twitter|x\b|retweet|retweets|tweet)\b/.test(rawText)) return 'x';
+  if (/\b(tiktok|tt)\b/.test(rawText)) return 'tiktok';
+  if (/\b(threads)\b/.test(rawText)) return 'threads';
+  if (/\b(instagram|insta|ig)\b/.test(rawText)) return 'instagram';
+
+  const text = `${item.platform || ''} ${item.category || ''} ${item.type || ''} ${item.name || ''} ${item.displayName || ''}`.toLowerCase();
+  if (/\b(snapchat|snap)\b/.test(text)) return 'snapchat';
+  if (/\b(spotify)\b/.test(text)) return 'spotify';
+  if (/\b(whatsapp|wa)\b/.test(text)) return 'whatsapp';
+  if (/\b(telegram|tg)\b/.test(text)) return 'telegram';
+  if (/\b(youtube|yt|subscriber|subscribers|shorts)\b/.test(text)) return 'youtube';
+  if (/\b(facebook|fb|page follower|page followers)\b/.test(text)) return 'facebook';
+  if (/\b(twitter|x\b|retweet|retweets|tweet)\b/.test(text)) return 'x';
+  if (/\b(tiktok|tt)\b/.test(text)) return 'tiktok';
+  if (/\b(threads)\b/.test(text)) return 'threads';
+  if (/\b(instagram|insta|ig)\b/.test(text)) return 'instagram';
+
   const plat = String(item.platform || "").toLowerCase();
-  const STANDARD = ["instagram", "facebook", "youtube", "x", "telegram", "whatsapp", "threads", "tiktok", "spotify"];
+  const STANDARD = ["instagram", "facebook", "youtube", "x", "telegram", "whatsapp", "threads", "tiktok", "spotify", "snapchat"];
   
   if (STANDARD.includes(plat)) {
     return plat;
   }
-  
-  const text = `${item.platform || ''} ${item.category || ''} ${item.name || ''} ${item.displayName || ''} ${item.providerName || ''}`.toLowerCase();
-  if (text.includes('facebook') || text.includes('fb')) return 'facebook';
-  if (text.includes('youtube') || text.includes('yt')) return 'youtube';
-  if (text.includes('twitter') || text.includes('x ')) return 'x';
-  if (text.includes('telegram') || text.includes('tg')) return 'telegram';
-  if (text.includes('instagram') || text.includes('insta') || text.includes('ig')) return 'instagram';
 
   return currentSelectedPlatform || "instagram";
 }
 
-export function CatalogPicker({ catalogServices, rawServices: initialServices, providerName, providerKey, providerCurrency, onRefresh }: any) {
+export function CatalogPicker({ catalogServices, rawServices: initialServices, providerName, providerKey, providerCurrency, categoryMappings = {}, onRefresh, onTaxonomyChange }: any) {
   const router = useRouter();
   // Navigation tabs: "picker" | "edits" | "sales"
   const [activeTab, setActiveTab] = React.useState<"picker" | "edits" | "sales">("picker");
@@ -489,9 +567,12 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
   // Search input for raw catalog
   const [catalogSearch, setCatalogSearch] = React.useState<string>("");
   const [selectedRawCategory, setSelectedRawCategory] = React.useState<string>("all");
-  const [showOnlyProviderMarked, setShowOnlyProviderMarked] = React.useState<boolean>(false);
+  const [markedFilter, setMarkedFilter] = React.useState<"all" | "marked" | "unmarked">("all");
   const [stabilityFilter, setStabilityFilter] = React.useState<StabilityTierId | "all">("all");
   const [selectedGeoFilter, setSelectedGeoFilter] = React.useState<GeoCode>("all");
+  const [refillFilter, setRefillFilter] = React.useState<string>("all");
+  const [qualityFilter, setQualityFilter] = React.useState<string>("all");
+  const [badgeFilter, setBadgeFilter] = React.useState<string>("all");
 
   // Map of working selections: key = `${platform}:${category}` -> array of ServiceItem
   const [workingSelections, setWorkingSelections] = React.useState<Record<string, ServiceItem[]>>({});
@@ -510,11 +591,37 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
   // New Override Maps for V2 Manual Mapping
   const [groupNameMap, setGroupNameMap] = React.useState<Record<string, string>>({});
   const [variantNameMap, setVariantNameMap] = React.useState<Record<string, string>>({});
+  const [subCategoryMap, setSubCategoryMap] = React.useState<Record<string, string>>({});
+  const [categoryMap, setCategoryMap] = React.useState<Record<string, string>>({});
+  const [descriptionMap, setDescriptionMap] = React.useState<Record<string, string>>({});
   const [sellPriceMap, setSellPriceMap] = React.useState<Record<string, string>>({});
   const [multiplierMap, setMultiplierMap] = React.useState<Record<string, string>>({});
   const [badgeMap, setBadgeMap] = React.useState<Record<string, string>>({});
   const [stabilityMap, setStabilityMap] = React.useState<Record<string, string>>({});
+  const [descViewModeMap, setDescViewModeMap] = React.useState<Record<string, "edited" | "original">>({});
   const [modifiedServiceIds, setModifiedServiceIds] = React.useState<Set<string>>(new Set());
+
+  // Taxonomy Modal & Custom Categories State
+  const [isTaxonomyModalOpen, setIsTaxonomyModalOpen] = React.useState(false);
+  const [taxonomyCategories, setTaxonomyCategories] = React.useState<CategoryItem[]>(INITIAL_DEFAULT_CATEGORIES);
+
+  React.useEffect(() => {
+    apiClient.get("/admin/settings")
+      .then((res: any) => {
+        const raw = res?.catalog_taxonomy;
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed?.categories && Array.isArray(parsed.categories) && parsed.categories.length > 0) {
+              setTaxonomyCategories(parsed.categories);
+            }
+          } catch (e) {}
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load taxonomy", err);
+      });
+  }, []);
 
   const [globalMultiplier, setGlobalMultiplier] = React.useState<string>("1.5");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -536,6 +643,10 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
   const matchesPlatformStrict = (text: string, platform: string): boolean => {
     const t = text.toLowerCase();
     if (platform === "instagram") {
+      // Must not match other explicit platforms like snapchat, telegram, youtube, facebook, whatsapp, spotify
+      if (/\b(snapchat|snap|telegram|tg|youtube|yt|facebook|fb|whatsapp|wa|tiktok|tt|spotify|threads)\b/.test(t)) {
+        return false;
+      }
       return /\binstagram\b/.test(t) || /\binsta\b/.test(t) || /\big\b/.test(t);
     }
     if (platform === "youtube") {
@@ -559,6 +670,12 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     if (platform === "threads") {
       return /\bthreads\b/.test(t);
     }
+    if (platform === "snapchat") {
+      return /\bsnapchat\b/.test(t) || /\bsnap\b/.test(t);
+    }
+    if (platform === "spotify") {
+      return /\bspotify\b/.test(t);
+    }
     return false;
   };
 
@@ -566,35 +683,49 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
   const matchesCategoryTypeStrict = (text: string, categoryType: string): boolean => {
     const t = text.toLowerCase();
 
-    const hasFollowerKw = /\bfollowers?\b|\bsubscribers?\b|\bmembers?\b|\bfans?\b/.test(t);
-    const hasLikeKw = /\blikes?\b|\bupvotes?\b|\bhearts?\b|\bdislikes?\b/.test(t);
-    const hasViewKw = /\bviews?\b|\bimpressions?\b|\bwatch\s*time\b|\bstreams?\b|\bplays?\b/.test(t);
-    const hasCommentKw = /\bcomments?\b|\breplies?\b|\breply\b/.test(t);
-    const hasShareKw = /\bshares?\b|\bretweets?\b|\bforwards?\b|\breposts?\b/.test(t);
+    const hasSaveKw = /\bsaves?\b|\bbookmarks?\b|\bfavorites?\b/.test(t);
+    const hasFollowerKw = /\bfollowers?\b|\bsubscribers?\b|\bmembers?\b|\bfans?\b|\bfriends?\b|\bpage\s*likes?\b|\bpage\s*like\b|\bprofile\s*followers?\b|\bchannel\s*members?\b|\bgroup\s*members?\b/.test(t);
+    const hasLikeKw = /\blikes?\b|\bupvotes?\b|\bhearts?\b|\bdislikes?\b|\breactions?\b|\breact(s)?\b|\bemotes?\b|\bemojis?\b|\bcare\b|\bhaha\b|\bsad\b|\bangry\b|\bwow\b|\blove\b/.test(t);
+    const hasViewKw = /\bviews?\b|\bimpressions?\b|\bwatch\s*time\b|\bstreams?\b|\bplays?\b|\breach\b|\breels?\b|\bstor(y|ies)\b|\bvideo(s)?\b|\bmonetization\b/.test(t);
+    const hasCommentKw = /\bcomments?\b|\breplies?\b|\breply\b|\breviews?\b|\bfeedback\b/.test(t);
+    const hasShareKw = /\bshares?\b|\bretweets?\b|\bforwards?\b|\breposts?\b|\breshares?\b/.test(t);
+    const hasVoteKw = /\bvotes?\b|\bpolls?\b|\banswers?\b|\bbot\s*start\b|\bstart\s*bot\b/.test(t);
 
+    if (categoryType === "saves") {
+      return hasSaveKw;
+    }
     if (categoryType === "followers") {
+      if (hasSaveKw) return false;
       return hasFollowerKw;
     }
     if (categoryType === "likes") {
-      return hasLikeKw && !hasFollowerKw;
+      if (hasSaveKw) return false;
+      if (hasLikeKw) {
+        if (hasFollowerKw && !/\bpost\s*likes?\b|\bpost\s*reactions?\b|\bphoto\s*likes?\b|\bpicture\s*likes?\b/.test(t)) {
+          return false;
+        }
+        return true;
+      }
+      return false;
+    }
+    if (categoryType === "reactions") {
+      if (hasSaveKw) return false;
+      return hasLikeKw || /\breactions?\b|\breact(s)?\b|\bemotes?\b|\bemojis?\b|\bcare\b|\bhaha\b|\bsad\b|\bangry\b|\bwow\b|\blove\b/.test(t);
     }
     if (categoryType === "views") {
-      return hasViewKw && !hasLikeKw && !hasFollowerKw && !hasCommentKw;
+      return hasViewKw && !hasCommentKw && !(hasFollowerKw && !/\bvideo\b|\breel\b|\bstory\b|\bviews?\b|\bwatch\b/.test(t));
     }
     if (categoryType === "comments") {
       return hasCommentKw;
     }
-    if (categoryType === "shares" || categoryType === "repost") {
-      return hasShareKw;
+    if (categoryType === "repost") {
+      return /\breposts?\b/.test(t);
+    }
+    if (categoryType === "shares") {
+      return (hasShareKw && !/\breposts?\b/.test(t)) || /\bshares?\b|\bretweets?\b|\bforwards?\b|\breshares?\b/.test(t);
     }
     if (categoryType === "votes") {
-      return /\bvotes?\b|\bpolls?\b/.test(t);
-    }
-    if (categoryType === "reactions") {
-      return /\breactions?\b|\bemotes?\b|\bemojis?\b/.test(t);
-    }
-    if (categoryType === "saves") {
-      return /\bsaves?\b|\bbookmarks?\b|\bfavorites?\b/.test(t);
+      return hasVoteKw;
     }
     if (categoryType === "mentions") {
       return /\bmentions?\b/.test(t);
@@ -609,27 +740,19 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     const text = `${svc.rawProviderCategory || svc.providerCategory || svc.category || ""} ${svc.name || svc.providerName || ""}`;
 
     if (!p || p === "other") {
-      if (matchesPlatformStrict(text, "youtube")) p = "youtube";
-      else if (matchesPlatformStrict(text, "tiktok")) p = "tiktok";
-      else if (matchesPlatformStrict(text, "telegram")) p = "telegram";
-      else if (matchesPlatformStrict(text, "facebook")) p = "facebook";
-      else if (matchesPlatformStrict(text, "x")) p = "x";
-      else if (matchesPlatformStrict(text, "whatsapp")) p = "whatsapp";
-      else if (matchesPlatformStrict(text, "threads")) p = "threads";
-      else if (matchesPlatformStrict(text, "instagram")) p = "instagram";
-      else p = "other";
+      p = getStandardPlatform(svc, selectedPlatform);
     }
 
     if (!t || t === "other" || t === "default") {
-      if (matchesCategoryTypeStrict(text, "followers")) t = "followers";
-      else if (matchesCategoryTypeStrict(text, "likes")) t = "likes";
-      else if (matchesCategoryTypeStrict(text, "views")) t = "views";
+      if (matchesCategoryTypeStrict(text, "saves")) t = "saves";
       else if (matchesCategoryTypeStrict(text, "comments")) t = "comments";
       else if (matchesCategoryTypeStrict(text, "shares")) t = "shares";
       else if (matchesCategoryTypeStrict(text, "repost")) t = "repost";
-      else if (matchesCategoryTypeStrict(text, "votes")) t = "votes";
+      else if (matchesCategoryTypeStrict(text, "views")) t = "views";
+      else if (matchesCategoryTypeStrict(text, "likes")) t = "likes";
       else if (matchesCategoryTypeStrict(text, "reactions")) t = "reactions";
-      else if (matchesCategoryTypeStrict(text, "saves")) t = "saves";
+      else if (matchesCategoryTypeStrict(text, "followers")) t = "followers";
+      else if (matchesCategoryTypeStrict(text, "votes")) t = "votes";
       else t = "followers";
     }
 
@@ -654,13 +777,25 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     const map = new Map<string, any>();
     if (Array.isArray(catalogServices)) {
       catalogServices.forEach((cs: any) => {
-        if (cs.is_active && cs.provider_service_id) {
-          map.set(String(cs.provider_service_id), cs);
+        if (cs.is_active) {
+          const provSvcId = String(cs.provider_service_id || "");
+          const cleanProvSvcId = provSvcId.includes(":") ? provSvcId.split(":")[1] : provSvcId;
+          const provId = (cs.provider_id || "topsmm").toLowerCase();
+
+          if (cleanProvSvcId) {
+            map.set(cleanProvSvcId, cs);
+            map.set(`${provId}:${cleanProvSvcId}`, cs);
+            map.set(`topsmm:${cleanProvSvcId}`, cs);
+          }
+          // Only map by numeric DB id when explicitly browsing the Master Catalog (pablosmm)
+          if (providerKey === "pablosmm" && cs.id) {
+            map.set(String(cs.id), cs);
+          }
         }
       });
     }
     return map;
-  }, [catalogServices]);
+  }, [catalogServices, providerKey]);
 
   // Pre-populate workingSelections & override maps from initialServices + localStorage on mount
   React.useEffect(() => {
@@ -674,6 +809,9 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     const initQuality: Record<string, string> = {};
     const initGroupName: Record<string, string> = {};
     const initVariantName: Record<string, string> = {};
+    const initSubCategory: Record<string, string> = {};
+    const initCategory: Record<string, string> = {};
+    const initDescription: Record<string, string> = {};
     const initSellPrice: Record<string, string> = {};
     const initMultiplier: Record<string, string> = {};
     const initBadge: Record<string, string> = {};
@@ -696,7 +834,16 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
             const cleanSelections: Record<string, ServiceItem[]> = {};
             Object.entries(parsed).forEach(([slot, items]: [string, any]) => {
               if (Array.isArray(items)) {
-                const unsubmitted = items.filter((item) => !liveIds.has(getCleanId(item)));
+                const slotPlat = slot.split(":")[0];
+                const unsubmitted = items.filter((item) => {
+                  if (liveIds.has(getCleanId(item))) return false;
+                  // If item is assigned to wrong platform slot (e.g. YouTube service in Instagram slot), discard it
+                  const itemPlat = getStandardPlatform(item, undefined);
+                  if (itemPlat && itemPlat !== "other" && slotPlat && slotPlat !== itemPlat) {
+                    return false;
+                  }
+                  return true;
+                });
                 if (unsubmitted.length > 0) {
                   cleanSelections[slot] = unsubmitted;
                 }
@@ -718,7 +865,8 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     // 2. Pre-populate override maps from initialServices & savedCatalogMap
     initialServices.forEach((svc: any) => {
       const id = getCleanId(svc);
-      const savedCS = savedCatalogMap.get(id);
+      const provKey = (providerKey || "topsmm").toLowerCase();
+      const savedCS = savedCatalogMap.get(id) || savedCatalogMap.get(`${provKey}:${id}`) || savedCatalogMap.get(`topsmm:${id}`) || (svc.sourceServiceId ? savedCatalogMap.get(svc.sourceServiceId) : null);
 
       initMin[id] = String(svc.min);
       initMax[id] = String(svc.max);
@@ -727,6 +875,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       let stabilityVal = (svc as any).stability || "auto";
       let qualityVal = (svc as any).quality || "High Quality";
       let cancelVal = "auto";
+      let subCatVal = (svc as any).variant || "any";
       if (svc.tags && Array.isArray(svc.tags)) {
         svc.tags.forEach((t: string) => {
           if (t.startsWith("badge:")) badgeVal = t.replace("badge:", "");
@@ -735,23 +884,62 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
           if (t.startsWith("refill:")) refillVal = t.replace("refill:", "");
           if (t.startsWith("proposed_refill:")) refillVal = t.replace("proposed_refill:", "");
           if (t.startsWith("cancel:")) cancelVal = t.replace("cancel:", "");
+          if (t.startsWith("variant:")) subCatVal = t.replace("variant:", "");
         });
       }
+
+      if (savedCS && savedCS.tags && Array.isArray(savedCS.tags)) {
+        savedCS.tags.forEach((t: string) => {
+          if (t.startsWith("badge:")) badgeVal = t.replace("badge:", "");
+          if (t.startsWith("stability:")) stabilityVal = t.replace("stability:", "");
+          if (t.startsWith("quality:")) qualityVal = t.replace("quality:", "");
+          if (t.startsWith("refill:")) refillVal = t.replace("refill:", "");
+          if (t.startsWith("variant:")) subCatVal = t.replace("variant:", "");
+        });
+      }
+      if (savedCS?.variant) subCatVal = savedCS.variant;
 
       initRefill[id] = refillVal || "auto";
       initCancel[id] = cancelVal !== "auto" ? cancelVal : (svc.cancel ? "enabled" : "disabled");
       initQuality[id] = qualityVal;
       initBadge[id] = badgeVal;
       initStability[id] = stabilityVal;
+      initSubCategory[id] = subCatVal;
       
-      const cleaned = cleanServiceName(svc.displayName || svc.name || svc.providerName || "");
+      const rawFullName = svc.rawProviderName || svc.name || svc.providerName || "";
+      const rawCatName = svc.rawProviderCategory || svc.providerCategory || svc.category || "";
+      const cleaned = cleanServiceName(rawFullName);
+      const intrinsicPlat = getStandardPlatform(svc, selectedPlatform);
+
+      let cleanGroupName = savedCS?.name || svc.displayName || cleaned.groupName;
+      if (intrinsicPlat === "youtube" && cleanGroupName.toLowerCase().startsWith("instagram")) {
+        cleanGroupName = cleaned.groupName.toLowerCase().startsWith("instagram") ? "YouTube Subscribers" : cleaned.groupName;
+      } else if (intrinsicPlat === "telegram" && cleanGroupName.toLowerCase().startsWith("instagram")) {
+        cleanGroupName = cleaned.groupName.toLowerCase().startsWith("instagram") ? "Telegram Members" : cleaned.groupName;
+      } else if (intrinsicPlat === "facebook" && cleanGroupName.toLowerCase().startsWith("instagram")) {
+        cleanGroupName = cleaned.groupName.toLowerCase().startsWith("instagram") ? "Facebook Followers" : cleaned.groupName;
+      }
+
+      let catVal = savedCS?.category || svc.category || svc.type || selectedCategory;
+      if (intrinsicPlat === "youtube" && (catVal === "likes" || catVal === "followers")) {
+        if (rawFullName.toLowerCase().includes("subscriber") || rawCatName.toLowerCase().includes("subscriber")) {
+          catVal = "subscribers";
+        }
+      }
 
       if (savedCS) {
-        initGroupName[id] = savedCS.name || svc.displayName || cleaned.groupName;
+        initGroupName[id] = cleanGroupName;
         initVariantName[id] = savedCS.variant_name || cleaned.variantName;
+        initCategory[id] = catVal;
+        initDescription[id] = savedCS.description || savedCS.display_description || svc.desc || svc.description || "";
         initSellPrice[id] = savedCS.sell_price_inr !== undefined && savedCS.sell_price_inr !== null ? String(savedCS.sell_price_inr) : "";
+        let baseR = typeof svc.ratePer1000 === "number" ? svc.ratePer1000 : parseFloat(svc.rate || svc.ratePer1000 || "0");
+        let sP = parseFloat(initSellPrice[id]) || 0;
+        initMultiplier[id] = baseR > 0 && sP > 0 ? (sP / baseR).toFixed(2) : "1.50";
       } else {
-        initGroupName[id] = svc.displayName || cleaned.groupName;
+        initGroupName[id] = cleanGroupName;
+        initCategory[id] = catVal;
+        initDescription[id] = svc.desc || svc.description || "";
         
         let vName = "";
         let sPrice = "";
@@ -774,7 +962,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
         }
         
         let baseR = typeof svc.ratePer1000 === "number" ? svc.ratePer1000 : parseFloat(svc.rate || svc.ratePer1000 || "0");
-        let initialM = baseR > 0 ? (parseFloat(sPrice) / baseR).toFixed(2) : "1.00";
+        let initialM = baseR > 0 ? (parseFloat(sPrice) / baseR).toFixed(2) : "1.50";
         
         initVariantName[id] = vName;
         initSellPrice[id] = sPrice;
@@ -806,13 +994,46 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     setQualityMap((prev) => ({ ...initQuality, ...prev }));
     setGroupNameMap((prev) => ({ ...initGroupName, ...prev }));
     setVariantNameMap((prev) => ({ ...initVariantName, ...prev }));
+    setSubCategoryMap((prev) => ({ ...initSubCategory, ...prev }));
+    setCategoryMap((prev) => ({ ...initCategory, ...prev }));
+    setDescriptionMap((prev) => ({ ...initDescription, ...prev }));
     setSellPriceMap((prev) => ({ ...initSellPrice, ...prev }));
     setMultiplierMap((prev) => ({ ...initMultiplier, ...prev }));
     setBadgeMap((prev) => ({ ...initBadge, ...prev }));
     setStabilityMap((prev) => ({ ...initStability, ...prev }));
   }, [initialServices, providerName, savedCatalogMap]);
 
-  // Unique list of provider's raw categories filtered strictly by current platform AND category slot (e.g. Instagram + Likes)
+  // Unique list of provider's raw categories for the selected platform
+  const rawCategoriesListForPlatform = React.useMemo(() => {
+    const categoriesSet = new Set<string>();
+
+    initialServices.forEach((s: any) => {
+      const catName = s.rawProviderCategory || s.providerCategory || s.category || "";
+      if (!catName) return;
+
+      const p = (s.platform || "").toLowerCase();
+      const combinedText = catName + " " + (s.name || s.providerName || "");
+
+      // 1. If explicitly mapped under selectedPlatform, accept immediately
+      const mappedCat = getMappedCategory(categoryMappings, selectedPlatform, catName);
+      if (mappedCat && mappedCat !== "none" && mappedCat !== "hidden") {
+        categoriesSet.add(catName);
+        return;
+      }
+
+      // 2. Otherwise check strict platform match
+      if (p && p !== "other" && p !== selectedPlatform) return;
+      if (!p || p === "other") {
+        if (!matchesPlatformStrict(combinedText, selectedPlatform)) return;
+      }
+
+      categoriesSet.add(catName);
+    });
+
+    return Array.from(categoriesSet);
+  }, [initialServices, selectedPlatform, categoryMappings]);
+
+  // Unique list of provider's raw categories filtered strictly by current category slot
   const rawCategoriesList = React.useMemo(() => {
     const categoriesSet = new Set<string>();
 
@@ -821,26 +1042,34 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       if (!catName) return;
 
       const p = (s.platform || "").toLowerCase();
-      const t = (s.type || "").toLowerCase();
-      const combinedText = catName + " " + (s.name || s.providerName || "");
+      const mappedCat = getMappedCategory(categoryMappings, selectedPlatform, catName);
 
-      // 1. Exclude services that explicitly belong to a DIFFERENT platform
-      if (p && p !== "other" && p !== selectedPlatform) return;
-      if (!p || p === "other") {
-        if (!matchesPlatformStrict(combinedText, selectedPlatform)) return;
-      }
-
-      // 2. Exclude services that explicitly belong to a DIFFERENT category type
-      if (t && t !== "other" && t !== "default" && t !== selectedCategory) return;
-      if (!t || t === "other" || t === "default") {
-        if (!matchesCategoryTypeStrict(combinedText, selectedCategory)) return;
+      if (providerKey === "pablosmm") {
+        if (p && p !== "other" && p !== selectedPlatform) return;
+        const svcCat = s.category || s.type || catName;
+        if (!isCategoryMatch(svcCat, selectedCategory, selectedPlatform)) return;
+      } else {
+        // Raw Provider (TopSMM): Strictly follow categoryMappings
+        if (mappedCat) {
+          if (mappedCat === "hidden" || mappedCat === "none") return;
+          if (selectedCategory === "unmapped") return;
+          if (!isCategoryMatch(mappedCat, selectedCategory, selectedPlatform)) return;
+        } else {
+          // Unmapped category
+          if (selectedCategory !== "unmapped") return;
+          const combinedText = catName + " " + (s.name || s.providerName || "");
+          if (p && p !== "other" && p !== selectedPlatform) return;
+          if (!p || p === "other") {
+            if (!matchesPlatformStrict(combinedText, selectedPlatform)) return;
+          }
+        }
       }
 
       categoriesSet.add(catName);
     });
 
     return Array.from(categoriesSet);
-  }, [initialServices, selectedPlatform, selectedCategory]);
+  }, [initialServices, selectedPlatform, selectedCategory, categoryMappings, providerKey]);
 
   // Services matching selected raw provider category & search query
   const categoryFilteredServices = React.useMemo(() => {
@@ -854,25 +1083,38 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       const cleanId = getCleanId(s).toLowerCase();
       const rawId = (s.sourceServiceId || s.id || "").toLowerCase();
       const name = (s.name || s.providerName || "").toLowerCase();
-      
       const isIdMatch = query.length > 0 && (cleanId === query || rawId === query || cleanId.includes(query) || rawId.includes(query));
+      
+      const mappedCat = getMappedCategory(categoryMappings, selectedPlatform, catName);
 
-      if (!isIdMatch) {
-        // 1. Strict Platform Match (Exclude any service belonging to a different platform)
+      // 1. Platform Match
+      if (mappedCat && mappedCat !== "none" && mappedCat !== "hidden") {
+        // Explicitly mapped by user under this platform
+      } else {
         if (p && p !== "other" && p !== selectedPlatform) return false;
         if (!p || p === "other") {
           if (!matchesPlatformStrict(combinedText, selectedPlatform)) return false;
         }
+      }
 
+      if (!isIdMatch) {
         // 2. Raw Category Filter
         if (selectedRawCategory !== "all") {
           if (catName !== selectedRawCategory) return false;
-        }
-
-        // Always enforce the type filter to ensure we don't bleed likes into followers
-        if (t && t !== "other" && t !== "default" && t !== selectedCategory) return false;
-        if (!t || t === "other" || t === "default") {
-          if (!matchesCategoryTypeStrict(combinedText, selectedCategory)) return false;
+        } else {
+          if (providerKey === "pablosmm") {
+            const svcCat = s.category || s.type || catName;
+            if (!isCategoryMatch(svcCat, selectedCategory, selectedPlatform)) return false;
+          } else {
+            // Raw Provider (TopSMM)
+            if (mappedCat) {
+              if (mappedCat === "hidden" || mappedCat === "none") return false;
+              if (selectedCategory === "unmapped") return false;
+              if (!isCategoryMatch(mappedCat, selectedCategory, selectedPlatform)) return false;
+            } else {
+              if (selectedCategory !== "unmapped") return false;
+            }
+          }
         }
       }
 
@@ -883,13 +1125,12 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
         }
       }
 
-      // 4. Provider Marked Filter
-      if (showOnlyProviderMarked) {
-        const isMarked = savedCatalogMap.has(cleanId) || Object.values(workingSelections).some(slot => slot.some(item => getCleanId(item) === cleanId));
-        if (!isMarked) return false;
-      }
+      // 4. Provider Marked / Unmarked Filter
+      const isMarked = savedCatalogMap.has(cleanId) || Object.values(workingSelections).some(slot => slot.some(item => getCleanId(item) === cleanId));
+      if (markedFilter === "marked" && !isMarked) return false;
+      if (markedFilter === "unmarked" && isMarked) return false;
 
-      // 5. Stability Filter
+      // 5. Stability / Speed Filter
       if (stabilityFilter !== "all") {
         const tier = getStabilityTier(s);
         if (tier.id !== stabilityFilter) return false;
@@ -899,6 +1140,51 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       if (selectedGeoFilter !== "all") {
         const geo = detectGeo(s);
         if (geo.id !== selectedGeoFilter) return false;
+      }
+
+      // 7. Refill Filter (matches mapping options or raw tags/text)
+      if (refillFilter !== "all") {
+        const mappedRefill = refillMap[cleanId];
+        if (mappedRefill && mappedRefill !== "auto") {
+          if (mappedRefill !== refillFilter) return false;
+        } else {
+          const text = `${s.name || s.providerName || ""} ${s.desc || s.description || ""}`.toLowerCase();
+          const { refillLabel } = getServiceTags(s);
+          const currentRefill = refillLabel || (s.refill ? "30 Days" : "No Refill");
+          
+          if (refillFilter === "No Refill") {
+            if (currentRefill !== "No Refill" && !text.includes("no refill") && !text.includes("0 days")) return false;
+          } else {
+            const filterLower = refillFilter.toLowerCase();
+            if (!currentRefill.toLowerCase().includes(filterLower) && !text.includes(filterLower)) return false;
+          }
+        }
+      }
+
+      // 8. Quality Filter (matches mapping options or raw tags/text)
+      if (qualityFilter !== "all") {
+        const mappedQuality = qualityMap[cleanId];
+        if (mappedQuality && mappedQuality !== "auto") {
+          if (mappedQuality !== qualityFilter) return false;
+        } else {
+          const text = `${s.name || s.providerName || ""} ${s.desc || s.description || ""}`.toLowerCase();
+          if (qualityFilter === "High Quality" && !/\b(hq|high\s*quality)\b/.test(text)) return false;
+          if (qualityFilter === "Real Accounts" && !/\b(real|active)\b/.test(text)) return false;
+          if (qualityFilter === "Bot / Cheap" && !/\b(bot|cheap|budget)\b/.test(text)) return false;
+          if (qualityFilter === "Targeted / Organic" && !/\b(target|organic|india|indian)\b/.test(text)) return false;
+        }
+      }
+
+      // 9. Custom Badge Filter (matches mapping options or raw tags/text)
+      if (badgeFilter !== "all") {
+        const mappedBadge = badgeMap[cleanId];
+        if (mappedBadge && mappedBadge !== "auto") {
+          if (mappedBadge !== badgeFilter) return false;
+        } else {
+          const text = `${s.name || s.providerName || ""}`.toLowerCase();
+          const bLower = badgeFilter.toLowerCase();
+          if (!text.includes(bLower)) return false;
+        }
       }
 
       return true;
@@ -911,7 +1197,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       const rateB = typeof b.ratePer1000 === "number" ? b.ratePer1000 : parseFloat(b.rate || b.ratePer1000 || "0");
       return rateA - rateB;
     });
-  }, [initialServices, selectedRawCategory, selectedPlatform, selectedCategory, catalogSearch, showOnlyProviderMarked, stabilityFilter, selectedGeoFilter]);
+  }, [initialServices, selectedRawCategory, selectedPlatform, selectedCategory, catalogSearch, markedFilter, stabilityFilter, selectedGeoFilter, refillFilter, qualityFilter, badgeFilter, refillMap, qualityMap, badgeMap]);
 
   React.useEffect(() => {
     if (categoryFilteredServices.length > 0) {
@@ -1027,13 +1313,28 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
   };
 
   const handleFieldChange = (
-    field: "groupName" | "variantName" | "sellPrice" | "multiplier" | "badge" | "refillTag" | "stability" | "cancel", 
+    field: "groupName" | "variantName" | "subCategory" | "sellPrice" | "multiplier" | "badge" | "refillTag" | "stability" | "cancel" | "category" | "description", 
     value: string, 
     svc: ServiceItem
   ) => {
     const cleanId = getCleanId(svc);
     if (field === "groupName") setGroupNameMap(prev => ({ ...prev, [cleanId]: value }));
     if (field === "variantName") setVariantNameMap(prev => ({ ...prev, [cleanId]: value }));
+    if (field === "subCategory") {
+      setSubCategoryMap(prev => ({ ...prev, [cleanId]: value }));
+      svc.variant = value;
+    }
+    if (field === "category") {
+      setCategoryMap(prev => ({ ...prev, [cleanId]: value }));
+      svc.category = value;
+      svc.type = value;
+    }
+    if (field === "description") {
+      setDescriptionMap(prev => ({ ...prev, [cleanId]: value }));
+      svc.desc = value;
+      svc.description = value;
+      svc.displayDescription = value;
+    }
     if (field === "badge") setBadgeMap(prev => ({ ...prev, [cleanId]: value }));
     if (field === "refillTag") setRefillMap(prev => ({ ...prev, [cleanId]: value }));
     if (field === "stability") setStabilityMap(prev => ({ ...prev, [cleanId]: value }));
@@ -1068,7 +1369,7 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     }
   };
 
-  // Discard all unsaved drafts and revert to live state
+  // Discard all unsaved drafts and revert to clean live state
   const resetDrafts = () => {
     if (typeof window !== "undefined" && providerName) {
       try {
@@ -1076,28 +1377,10 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       } catch (err) {}
     }
 
+    setWorkingSelections({});
     setRejectedSelections(new Set());
-
-    const liveSelections: Record<string, ServiceItem[]> = {};
-    const liveIds = new Set(
-      initialServices
-        .filter((s: any) => s.hasPendingProviderSubmission || s.pendingProviderStatus === "active" || s.isProviderSubmission || (s.tags && s.tags.some((t: string) => t.includes("provider_status:active") || t.includes("proposed_status:active"))))
-        .map((s: any) => getCleanId(s))
-    );
-
-    initialServices.forEach((svc: any) => {
-      const cleanId = getCleanId(svc);
-      if (liveIds.has(cleanId)) {
-        const slot = resolveServiceSlotKey(svc);
-        if (!liveSelections[slot]) liveSelections[slot] = [];
-        if (!liveSelections[slot].some((s) => getCleanId(s) === cleanId)) {
-          liveSelections[slot].push(svc);
-        }
-      }
-    });
-
-    setWorkingSelections(liveSelections);
-    toast.info("Discarded unsaved changes. Reverted to last submitted state.");
+    setModifiedServiceIds(new Set());
+    toast.info("Discarded unsaved drafts. Reverted to clean state.");
   };
 
   // Submit all working services to backend
@@ -1109,7 +1392,9 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
     Object.values(workingSelections).forEach((items) => {
       items.forEach((item) => {
         const cleanId = getCleanId(item);
-        if (cleanId) allServicesToSave.set(cleanId, item);
+        if (cleanId && !rejectedSelections.has(cleanId)) {
+          allServicesToSave.set(cleanId, item);
+        }
       });
     });
 
@@ -1133,6 +1418,13 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       }
     });
 
+    // Clean out any rejected selections from allServicesToSave
+    rejectedSelections.forEach((id) => {
+      const cleanId = getCleanId(id);
+      allServicesToSave.delete(cleanId);
+      allServicesToSave.delete(id);
+    });
+
     if (allServicesToSave.size === 0 && rejectedSelections.size === 0) {
       toast.error("Please pick, edit or remove at least 1 service before submitting.");
       return;
@@ -1145,9 +1437,23 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
       allServicesToSave.forEach((item, cleanId) => {
         const sourceId = cleanId;
 
-        // Resolve platform & category slot using robust detection
-        const platform = getStandardPlatform(item, selectedPlatform);
-        const category = getStandardCategory(item, selectedCategory);
+        // 1. Check if item was picked into a specific working slot (e.g. "youtube:subscribers")
+        const workingSlotEntry = Object.entries(workingSelections).find(([_, items]) => items.some(it => getCleanId(it) === cleanId));
+        const slotPlatform = workingSlotEntry ? workingSlotEntry[0].split(":")[0] : undefined;
+        const slotCategory = workingSlotEntry ? workingSlotEntry[0].split(":")[1] : undefined;
+
+        // 2. Check if item exists in saved catalog map
+        const provKey = (providerKey || "topsmm").toLowerCase();
+        const savedCS = savedCatalogMap.get(cleanId) || savedCatalogMap.get(`${provKey}:${cleanId}`) || savedCatalogMap.get(`topsmm:${cleanId}`);
+
+        const rawCatName = item.rawProviderCategory || item.providerCategory || item.category || "";
+        const mappedCat = getMappedCategory(categoryMappings, selectedPlatform, rawCatName);
+
+        // 1. Resolve platform (respect slot, saved, or selected platform)
+        const platform = slotPlatform || savedCS?.platform || item.platform || selectedPlatform;
+
+        // 2. Resolve category (respect categoryMap override -> mappedCat -> savedCS -> slot -> selectedCategory)
+        const category = categoryMap[cleanId] || (savedCS?.category) || mappedCat || slotCategory || item.category || selectedCategory;
 
         const cancelSelection = cancelMap[cleanId] || "auto";
         let cancelOverride: boolean | undefined = undefined;
@@ -1162,18 +1468,25 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
           sellPriceInr = Math.ceil(baseRate * 1.5);
         }
 
+        const subCat = subCategoryMap[cleanId] || item.variant || "any";
+        const cleaned = cleanServiceName(item.rawProviderName || item.name || item.providerName || "");
+        const displayName = groupNameMap[cleanId] || (savedCS?.name) || cleaned.groupName || item.displayName || item.name || `Service #${sourceId}`;
+        const variantName = variantNameMap[cleanId] || (savedCS?.variant_name) || cleaned.variantName || "Default";
+
         updates.push({
           id: sourceId,
           name: item.name || item.providerName || `Service #${sourceId}`,
-          displayName: groupNameMap[cleanId] || item.displayName || item.name || item.providerName,
+          displayName,
           status: "active",
           platform,
           category,
+          variant: subCat,
           rate: item.rate || item.ratePer1000,
           min: minMap[cleanId] ? parseInt(minMap[cleanId], 10) : item.min,
           max: maxMap[cleanId] ? parseInt(maxMap[cleanId], 10) : item.max,
           refillTag: refillMap[cleanId] || "auto",
-          variantName: variantNameMap[cleanId] || "Default",
+          variantName,
+          description: descriptionMap[cleanId] ?? item.desc ?? item.description ?? item.displayDescription ?? "",
           sellPriceInr,
           cancel: cancelOverride !== undefined ? cancelOverride : item.cancel,
           quality: qualityMap[cleanId] || "High Quality",
@@ -1271,33 +1584,52 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
 
           {/* Categories */}
           <div>
-            <h3 className="text-sm font-['GPB'] text-gray-800 mb-3">Select Category</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-['GPB'] text-gray-800">Select Category</h3>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setIsTaxonomyModalOpen(true)}
+                className="h-7 text-[11px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 font-['GPB'] px-2"
+              >
+                <SlidersHorizontal className="w-3 h-3 mr-1" />
+                Manage Categories
+              </Button>
+            </div>
             <div className="flex flex-wrap gap-2">
-              {categoriesList.map((c) => {
-                const isSelected = selectedCategory === c.id;
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedCategory(c.id)}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-full text-xs transition-all border",
-                      isSelected
-                        ? "bg-white border-gray-200 shadow-sm font-['GPB'] text-gray-900"
-                        : "bg-gray-50 border-transparent text-gray-600 font-['GM'] hover:bg-gray-100"
-                    )}
-                  >
-                    <img
-                      src={`/services/${c.id}${isSelected ? "-active" : ""}.png`}
-                      onError={(e) => {
-                        e.currentTarget.style.display = "none";
-                      }}
-                      alt={c.name}
-                      className="w-4 h-4 object-contain opacity-80"
-                    />
-                    {c.name}
-                  </button>
-                );
-              })}
+              {(() => {
+                const dynamicCats = taxonomyCategories
+                  .filter((c) => c.platformId === selectedPlatform)
+                  .map((c) => ({ id: c.id, name: c.name }));
+
+                const listToRender = dynamicCats.length > 0 ? dynamicCats : categoriesList;
+
+                return [...listToRender, { id: "unmapped", name: "Unmapped (Needs Action)" }].map((c) => {
+                  const isSelected = selectedCategory === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedCategory(c.id)}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-2 rounded-full text-xs transition-all border",
+                        isSelected
+                          ? "bg-white border-gray-200 shadow-sm font-['GPB'] text-gray-900"
+                          : "bg-gray-50 border-transparent text-gray-600 font-['GM'] hover:bg-gray-100"
+                      )}
+                    >
+                      <img
+                        src={`/services/${c.id}${isSelected ? "-active" : ""}.png`}
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                        alt={c.name}
+                        className="w-4 h-4 object-contain opacity-80"
+                      />
+                      {c.name}
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>
@@ -1312,13 +1644,15 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                 <SelectTrigger className="w-full h-12 bg-white border-gray-200 rounded-xl shadow-sm text-sm font-['GPB']" style={{padding: '24px 12px'}}>
                   <div className="flex flex-col items-start gap-0.5">
                     <span className="text-[10px] font-['GB'] text-gray-400 uppercase tracking-wider">
-                      📁 CATEGORY
+                      📁 CATEGORY ({rawCategoriesListForPlatform.length} TOPSMM CATEGORIES)
                     </span>
                     <SelectValue placeholder="All Categories" />
                   </div>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
+                <SelectContent className="max-h-[400px]">
+                  <SelectItem value="all">
+                    All Categories ({rawCategoriesList.length} Categories)
+                  </SelectItem>
                   {rawCategoriesList.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c}
@@ -1340,25 +1674,43 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                 />
               </div>
               {providerKey !== "pablosmm" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowOnlyProviderMarked(!showOnlyProviderMarked)}
-                  className={cn(
-                    "h-10 px-4 rounded-xl text-xs font-['GPB'] whitespace-nowrap transition-colors",
-                    showOnlyProviderMarked 
-                      ? "bg-[#111] text-white border-[#111] hover:bg-black/90 hover:text-white" 
-                      : "bg-white text-gray-600 hover:bg-gray-50"
-                  )}
-                >
-                  <Sparkles className="w-3.5 h-3.5 mr-2" />
-                  {showOnlyProviderMarked ? "Showing Marked" : "Show Marked"}
-                </Button>
+                <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMarkedFilter(markedFilter === "marked" ? "all" : "marked")}
+                    className={cn(
+                      "h-8 px-3 rounded-lg text-xs font-['GPB'] whitespace-nowrap transition-all",
+                      markedFilter === "marked" 
+                        ? "bg-[#111] text-white shadow-sm hover:bg-black hover:text-white" 
+                        : "text-gray-600 hover:text-gray-900 hover:bg-white/80"
+                    )}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5 text-indigo-500" />
+                    {markedFilter === "marked" ? "Showing Marked" : "Show Marked"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMarkedFilter(markedFilter === "unmarked" ? "all" : "unmarked")}
+                    className={cn(
+                      "h-8 px-3 rounded-lg text-xs font-['GPB'] whitespace-nowrap transition-all",
+                      markedFilter === "unmarked" 
+                        ? "bg-[#111] text-white shadow-sm hover:bg-black hover:text-white" 
+                        : "text-gray-600 hover:text-gray-900 hover:bg-white/80"
+                    )}
+                  >
+                    <CircleDashed className="w-3.5 h-3.5 mr-1.5 text-amber-500" />
+                    {markedFilter === "unmarked" ? "Showing Unmarked" : "Show Unmarked"}
+                  </Button>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Stability & Geo Filter Row */}
+          {/* Filter Pills Bar: Speed, Geo, Refill, Drop, Quality */}
           <div className="px-4 py-2.5 flex flex-wrap items-center gap-y-2 gap-x-4 border-b border-gray-100 bg-gray-50/30">
             {/* Speed Filter */}
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -1397,6 +1749,81 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                   )}
                 >
                   {geo.flag} {geo.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="h-4 w-px bg-gray-200 hidden sm:block" />
+
+            {/* Refill Filter Pills */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-['GPB'] text-gray-400 uppercase tracking-wider mr-1">Refill Tag:</span>
+              {[
+                { value: "all", label: "All Refill" },
+                ...REFILL_OPTIONS.filter((o) => o.value !== "auto")
+              ].map((r) => (
+                <button
+                  key={r.value}
+                  onClick={() => setRefillFilter(r.value)}
+                  className={cn(
+                    "px-2.5 py-0.5 rounded-full text-[10px] font-['GPB'] transition-all border",
+                    refillFilter === r.value
+                      ? "bg-[#111] text-white border-[#111] shadow-sm"
+                      : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-gray-700"
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="h-4 w-px bg-gray-200 hidden sm:block" />
+
+            {/* Quality Tagging Pills */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-['GPB'] text-gray-400 uppercase tracking-wider mr-1">Quality:</span>
+              {[
+                { value: "all", label: "All Quality" },
+                ...QUALITY_OPTIONS
+              ].map((q) => (
+                <button
+                  key={q.value}
+                  onClick={() => setQualityFilter(q.value)}
+                  className={cn(
+                    "px-2.5 py-0.5 rounded-full text-[10px] font-['GPB'] transition-all border",
+                    qualityFilter === q.value
+                      ? "bg-[#111] text-white border-[#111] shadow-sm"
+                      : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-gray-700"
+                  )}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="h-4 w-px bg-gray-200 hidden sm:block" />
+
+            {/* Custom Badges Pills */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-['GPB'] text-gray-400 uppercase tracking-wider mr-1">Badge:</span>
+              {[
+                { value: "all", label: "All Badges" },
+                { value: "Recommended", label: "Recommended ⭐" },
+                { value: "Best", label: "Best 🔥" },
+                { value: "Premium", label: "Premium 👑" },
+                { value: "Cheapest", label: "Cheapest 🏷️" },
+              ].map((b) => (
+                <button
+                  key={b.value}
+                  onClick={() => setBadgeFilter(b.value)}
+                  className={cn(
+                    "px-2.5 py-0.5 rounded-full text-[10px] font-['GPB'] transition-all border",
+                    badgeFilter === b.value
+                      ? "bg-[#111] text-white border-[#111] shadow-sm"
+                      : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-gray-700"
+                  )}
+                >
+                  {b.label}
                 </button>
               ))}
             </div>
@@ -1511,9 +1938,27 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                           >
                             {/* Badges Bar */}
                             <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                              <div className="inline-flex px-2 py-0.5 rounded-full bg-[#111] text-white font-['GPB'] text-[10px]">
-                                {cleanId}
-                              </div>
+                              {(() => {
+                                const topsmmId = svc.provider_service_id || svc.sourceServiceId || cleanId;
+                                const pabloId = (svc.id && providerKey === "pablosmm") 
+                                  ? String(svc.id) 
+                                  : savedCatalogMap.get(cleanId)?.id 
+                                    ? String(savedCatalogMap.get(cleanId)?.id) 
+                                    : undefined;
+
+                                return (
+                                  <>
+                                    <span className="inline-flex px-2 py-0.5 rounded-full bg-[#111] text-white font-['GPB'] text-[10px]">
+                                      TopSMM: #{topsmmId}
+                                    </span>
+                                    {pabloId && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-['GPB'] text-[10px] border border-purple-200">
+                                        Pablo ID: #{pabloId.padStart(4, "0")}
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()}
                               {isSaved && !isStagedForRemoval && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-['GPB'] text-[10px] border border-emerald-300">
                                   ✓ Saved in Catalog
@@ -1538,12 +1983,56 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                                   ⚠️ Disparity Alert
                                 </span>
                               )}
+                              {(() => {
+                                const effectiveCat = categoryMap[cleanId] || svc.category || svc.type || "";
+                                const effectiveSubCat = subCategoryMap[cleanId] || svc.variant || "";
+                                const catObj = taxonomyCategories.find(
+                                  c => c.platformId === (svc.platform || selectedPlatform) && (
+                                    c.id === effectiveCat || 
+                                    (c.id === "saves" && effectiveCat === "save") || 
+                                    (c.id === "save" && effectiveCat === "saves") ||
+                                    (c.id === "reposts" && effectiveCat === "repost") ||
+                                    (c.id === "repost" && effectiveCat === "reposts")
+                                  )
+                                );
+                                const subObj = catObj?.subcategories?.find(s => s.id === effectiveSubCat || (s.id === "post" && effectiveSubCat === "posts") || (s.id === "posts" && effectiveSubCat === "post"));
+                                const catName = catObj?.name || (effectiveCat ? effectiveCat.charAt(0).toUpperCase() + effectiveCat.slice(1) : "");
+                                if (!catName) return null;
+                                return (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-['GPB'] text-[10px] border border-indigo-200">
+                                    📁 {catName}{subObj ? ` ➔ ${subObj.name}` : ""}
+                                  </span>
+                                );
+                              })()}
+                              {(() => {
+                                const b = badgeMap[cleanId] || svc.badge;
+                                if (!b || b === "auto") return null;
+                                return (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-['GPB'] text-[10px] border border-amber-300">
+                                    ⭐ {b}
+                                  </span>
+                                );
+                              })()}
+                              {isRefillActive && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-['GPB'] text-[10px] border border-emerald-200">
+                                  🔄 {rawRefill}
+                                </span>
+                              )}
                             </div>
 
-                            {/* Title */}
-                            <h4 className="text-[13px] font-['GPB'] text-gray-900 leading-[1.3] mb-3">
-                              {svc.name || svc.providerName || "Service"}
-                            </h4>
+                            {/* Title & Raw Name */}
+                            <div className="mb-3 space-y-1">
+                              <h4 className="text-[13px] font-['GPB'] text-gray-900 leading-[1.3]">
+                                {providerKey === "pablosmm"
+                                  ? (groupNameMap[cleanId] || svc.displayName || svc.name || "Service")
+                                  : (svc.name || svc.providerName || svc.displayName || "Service")}
+                              </h4>
+                              {(svc.rawProviderName || svc.providerName) && (
+                                <p className="text-[11px] font-['GM'] text-gray-500 line-clamp-2">
+                                  <span className="font-['GB'] text-gray-400">Raw:</span> {svc.rawProviderName || svc.providerName}
+                                </p>
+                              )}
+                            </div>
 
                             {/* Footer: Price & Add */}
                             <div className="flex items-end justify-between mt-2 pt-3 border-t border-gray-100/60">
@@ -1601,118 +2090,6 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                                 )}
                               </Button>
                             </div>
-                            
-                            {/* Manual Mapping Inputs (V2) */}
-                            {isAdded && (
-                              <div className="mt-3 pt-3 border-t border-gray-100/60 flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
-                                <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-100">
-                                  <p className="text-[10px] text-blue-700 font-['GM'] leading-relaxed">
-                                    <strong className="font-['GPB']">Pro Tip:</strong> Use <strong>Group Name</strong> for the main category (e.g. <em>Instagram Followers</em>). Use <strong>Variant Name</strong> for the specific tier (e.g. <em>Max 10K</em>). The system automatically combines them to create the final Card Title (e.g. <em>Instagram Followers — Max 10K</em>).
-                                  </p>
-                                </div>
-                                <div>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <label className="text-[10px] font-['GPB'] text-gray-500 uppercase tracking-wider block">Group Name (Category)</label>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const cleaned = cleanServiceName(svc.name || svc.providerName || "");
-                                        handleFieldChange("groupName", cleaned.groupName, svc);
-                                        handleFieldChange("variantName", cleaned.variantName, svc);
-                                        toast.success(`Auto-cleaned: "${cleaned.groupName}" (${cleaned.variantName})`);
-                                      }}
-                                      className="text-[10px] font-['GPB'] text-purple-600 hover:text-purple-700 flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded transition-colors"
-                                    >
-                                      <Wand2 className="w-2.5 h-2.5" />
-                                      Auto-Clean Name
-                                    </button>
-                                  </div>
-                                  <Input 
-                                    value={groupNameMap[cleanId] || ""} 
-                                    onChange={(e) => handleFieldChange("groupName", e.target.value, svc)}
-                                    placeholder="e.g. Instagram Followers"
-                                    className="h-8 text-xs font-['GM']"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[10px] font-['GPB'] text-gray-500 uppercase tracking-wider mb-1 block">Variant Name (Tier)</label>
-                                  <Input 
-                                    value={variantNameMap[cleanId] || ""} 
-                                    onChange={(e) => handleFieldChange("variantName", e.target.value, svc)}
-                                    placeholder="e.g. 30 Days Refill"
-                                    className="h-8 text-xs font-['GM']"
-                                  />
-                                </div>
-                                
-                                {/* Profit & Pricing Widget */}
-                                {(() => {
-                                  const baseRate = typeof svc.ratePer1000 === "number" ? svc.ratePer1000 : parseFloat(svc.rate || svc.ratePer1000 || "0");
-                                  const sellingPrice = parseFloat(sellPriceMap[cleanId]) || 0;
-                                  const profit = sellingPrice - baseRate;
-                                  const profitPercent = baseRate > 0 ? (profit / baseRate) * 100 : 0;
-                                  const currentMultiplierStr = multiplierMap[cleanId] ?? (baseRate > 0 ? (sellingPrice / baseRate).toFixed(2) : "1.00");
-
-                                  return (
-                                    <div className="space-y-4 pt-3 border-t border-gray-100/60 mt-1">
-                                        <h4 className="text-[10px] font-['GB'] text-gray-400 uppercase tracking-wider block">Profit & Pricing</h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                                            <div className="flex flex-col gap-3">
-                                                <div className="space-y-1.5">
-                                                    <label className="text-[10px] font-['GPB'] text-gray-500 uppercase tracking-wider block">Selling Price (per 1,000)</label>
-                                                    <div className="relative">
-                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-['GB'] text-[14px]">₹</span>
-                                                        <Input
-                                                            type="number"
-                                                            step="0.01"
-                                                            className="pl-7 h-9 text-[13px] font-['GB'] text-gray-900"
-                                                            value={sellPriceMap[cleanId] || ""}
-                                                            onChange={(e) => handleFieldChange("sellPrice", e.target.value, svc)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-1.5">
-                                                    <label className="text-[10px] font-['GPB'] text-gray-500 uppercase tracking-wider block flex justify-between">
-                                                        <span>Price Multiplier</span>
-                                                        <span className="font-['GB'] text-blue-600 lowercase">{currentMultiplierStr}x</span>
-                                                    </label>
-                                                    <Input
-                                                        type="number"
-                                                        step="0.01"
-                                                        className="h-8 text-xs font-['GM'] bg-gray-50/50"
-                                                        value={currentMultiplierStr}
-                                                        onChange={(e) => handleFieldChange("multiplier", e.target.value, svc)}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="rounded-xl border bg-blue-50/50 p-4 flex flex-col justify-between h-full border-blue-100/50 shadow-[0_0_10px_rgba(59,130,246,0.03)]">
-                                                <div>
-                                                    <div className="text-[9px] font-['GPB'] text-blue-600/70 uppercase mb-2 tracking-widest">Profit Analysis</div>
-                                                    <div className="flex items-baseline gap-2">
-                                                        <div className="text-xl font-['GB'] text-blue-700 tracking-tight">
-                                                            ₹{profit.toFixed(2)}
-                                                        </div>
-                                                        <div className={cn(
-                                                            "text-[9px] font-['GPB'] px-2 py-0.5 rounded-full uppercase tracking-tighter border",
-                                                            profitPercent > 0 ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"
-                                                        )}>
-                                                            {profitPercent > 0 ? "+" : ""}{profitPercent.toFixed(1)}%
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="mt-4 pt-3 border-t border-blue-100/50 flex justify-between items-center text-[10px]">
-                                                    <span className="text-gray-500 font-['GM']">Margin on cost</span>
-                                                    <span className="font-['GPB'] text-gray-800 bg-white px-2 py-0.5 rounded border border-gray-200 shadow-sm">
-                                                        +{profitPercent.toFixed(0)}%
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -1807,6 +2184,224 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                       )}
                     </div>
 
+                    {/* ⚙️ Primary Service Configuration & Category Binding */}
+                    <div className="bg-indigo-50/70 border border-indigo-100 rounded-xl p-4 space-y-3 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-['GPB'] text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
+                          ⚙️ Category Binding & Service Titles
+                        </h4>
+                        <div className="flex items-center gap-1.5">
+                          {(() => {
+                            const topsmmId = activeSvc?.provider_service_id || activeSvc?.sourceServiceId || activeCleanId;
+                            const pabloId = (activeSvc?.id && providerKey === "pablosmm")
+                              ? String(activeSvc.id)
+                              : savedCatalogMap.get(activeCleanId)?.id
+                                ? String(savedCatalogMap.get(activeCleanId)?.id)
+                                : undefined;
+
+                            return (
+                              <>
+                                <span className="text-[10px] font-['GPB'] px-2 py-0.5 rounded bg-white text-gray-700 border border-indigo-200">
+                                  TopSMM: #{topsmmId}
+                                </span>
+                                {pabloId && (
+                                  <span className="text-[10px] font-['GPB'] px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">
+                                    Pablo ID: #{pabloId.padStart(4, "0")}
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      <p className="text-[10px] text-indigo-800 font-['GM'] leading-relaxed">
+                        <strong className="font-['GPB']">Customer App Binding:</strong> Select the Step 2 category and Step 2.1 option for this service on your user app.
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] font-['GPB'] text-indigo-900 uppercase tracking-wider mb-1 block">Category</label>
+                          {(() => {
+                            const rawCat = categoryMap[activeCleanId] || activeSvc.category || activeSvc.type || selectedCategory;
+                            const dynamicCats = taxonomyCategories.filter((c) => c.platformId === selectedPlatform);
+                            const platformCats = dynamicCats.length > 0 ? dynamicCats : (STANDARD_CATEGORIES[selectedPlatform] || STANDARD_CATEGORIES.instagram);
+                            const matchingCat = platformCats.find((c) => isCategoryMatch(c.id, rawCat, selectedPlatform));
+                            const selectedVal = matchingCat ? matchingCat.id : (platformCats[0]?.id || rawCat);
+
+                            return (
+                              <Select
+                                value={selectedVal}
+                                onValueChange={(val) => handleFieldChange("category", val, activeSvc)}
+                              >
+                                <SelectTrigger className="h-8 text-xs bg-white border-indigo-200">
+                                  <SelectValue placeholder="Select Category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {platformCats.map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>
+                                      {c.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            );
+                          })()}
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-['GPB'] text-indigo-900 uppercase tracking-wider mb-1 block">Sub-Category / Option</label>
+                          {(() => {
+                            const activeCatId = categoryMap[activeCleanId] || activeSvc.category || activeSvc.type || selectedCategory;
+                            const dynamicCats = taxonomyCategories.filter((c) => c.platformId === selectedPlatform);
+                            const platformCats = dynamicCats.length > 0 ? dynamicCats : (STANDARD_CATEGORIES[selectedPlatform] || STANDARD_CATEGORIES.instagram);
+                            const catObj = platformCats.find((c) => isCategoryMatch(c.id, activeCatId, selectedPlatform));
+                            const subcategories = (catObj as any)?.subcategories || [];
+                            const currentSubVal = subCategoryMap[activeCleanId] || activeSvc.variant || "any";
+                            const matchingSub = subcategories.find((s: any) => s.id === currentSubVal);
+                            const subSelectValue = matchingSub ? matchingSub.id : (currentSubVal === "any" || currentSubVal === "" ? "any" : currentSubVal);
+
+                            return (
+                              <Select
+                                value={subSelectValue}
+                                onValueChange={(val) => handleFieldChange("subCategory", val, activeSvc)}
+                              >
+                                <SelectTrigger className="h-8 text-xs bg-white border-indigo-200">
+                                  <SelectValue placeholder="Select Option" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="any">All / General</SelectItem>
+                                  {subcategories.map((sub: any) => (
+                                    <SelectItem key={sub.id} value={sub.id}>
+                                      {sub.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Group Name (Category Title) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-['GPB'] text-gray-700 uppercase tracking-wider block">Group Name (Category Title)</label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rawNameToClean = activeSvc.rawProviderName || activeSvc.name || activeSvc.providerName || "";
+                              const cleaned = cleanServiceName(rawNameToClean);
+                              let targetGroupName = cleaned.groupName;
+                              if (selectedPlatform === "youtube" && targetGroupName.toLowerCase().startsWith("instagram")) {
+                                targetGroupName = "YouTube Subscribers";
+                              }
+                              handleFieldChange("groupName", targetGroupName, activeSvc);
+                              handleFieldChange("variantName", cleaned.variantName, activeSvc);
+                              toast.success(`Auto-cleaned: "${targetGroupName}" (${cleaned.variantName})`);
+                            }}
+                            className="text-[10px] font-['GPB'] text-purple-600 hover:text-purple-700 flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded transition-colors"
+                          >
+                            <Wand2 className="w-2.5 h-2.5" />
+                            Auto-Clean Name
+                          </button>
+                        </div>
+                        {(() => {
+                          const rawFullName = activeSvc.rawProviderName || activeSvc.name || activeSvc.providerName || "";
+                          const cleaned = cleanServiceName(rawFullName);
+                          let displayVal = groupNameMap[activeCleanId] || "";
+                          if (selectedPlatform === "youtube" && displayVal.toLowerCase().startsWith("instagram")) {
+                            displayVal = cleaned.groupName.toLowerCase().startsWith("instagram") ? "YouTube Subscribers" : cleaned.groupName;
+                          }
+                          return (
+                            <Input 
+                              value={displayVal} 
+                              onChange={(e) => handleFieldChange("groupName", e.target.value, activeSvc)}
+                              placeholder="e.g. YouTube Subscribers"
+                              className="h-8 text-xs font-['GM'] bg-white"
+                            />
+                          );
+                        })()}
+                      </div>
+
+                      {/* Variant Title */}
+                      <div>
+                        <label className="text-[10px] font-['GPB'] text-gray-700 uppercase tracking-wider mb-1 block">Variant Title (Tier / Spec)</label>
+                        <Input 
+                          value={variantNameMap[activeCleanId] || ""} 
+                          onChange={(e) => handleFieldChange("variantName", e.target.value, activeSvc)}
+                          placeholder="e.g. 30 Days Refill"
+                          className="h-8 text-xs font-['GM'] bg-white"
+                        />
+                      </div>
+
+                      {/* Profit & Pricing Widget */}
+                      {(() => {
+                        const baseRate = typeof activeSvc.ratePer1000 === "number" ? activeSvc.ratePer1000 : parseFloat(activeSvc.rate || activeSvc.ratePer1000 || "0");
+                        const sellingPrice = parseFloat(sellPriceMap[activeCleanId]) || 0;
+                        const profit = sellingPrice - baseRate;
+                        const profitPercent = baseRate > 0 ? (profit / baseRate) * 100 : 0;
+                        const currentMultiplierStr = multiplierMap[activeCleanId] ?? (baseRate > 0 ? (sellingPrice / baseRate).toFixed(2) : "1.00");
+
+                        return (
+                          <div className="space-y-3 pt-2 border-t border-indigo-100">
+                            <h4 className="text-[10px] font-['GB'] text-indigo-900 uppercase tracking-wider block">Profit & Pricing</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+                              <div className="flex flex-col gap-2">
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-['GPB'] text-gray-600 uppercase tracking-wider block">Selling Price (per 1,000)</label>
+                                  <div className="relative">
+                                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 font-['GB'] text-xs">₹</span>
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      className="pl-6 h-8 text-xs font-['GB'] text-gray-900 bg-white"
+                                      value={sellPriceMap[activeCleanId] || ""}
+                                      onChange={(e) => handleFieldChange("sellPrice", e.target.value, activeSvc)}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-['GPB'] text-gray-600 uppercase tracking-wider flex justify-between">
+                                    <span>Price Multiplier</span>
+                                    <span className="font-['GB'] text-blue-600 lowercase">{currentMultiplierStr}x</span>
+                                  </label>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    className="h-8 text-xs font-['GM'] bg-white"
+                                    value={currentMultiplierStr}
+                                    onChange={(e) => handleFieldChange("multiplier", e.target.value, activeSvc)}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border bg-white p-3 flex flex-col justify-between h-full border-indigo-100 shadow-xs">
+                                <div>
+                                  <div className="text-[9px] font-['GPB'] text-blue-600 uppercase mb-1 tracking-widest">Profit Analysis</div>
+                                  <div className="flex items-baseline gap-1.5">
+                                    <div className="text-lg font-['GB'] text-blue-700 tracking-tight">
+                                      ₹{profit.toFixed(2)}
+                                    </div>
+                                    <span className={cn(
+                                      "text-[10px] font-['GPB'] px-1.5 py-0.5 rounded",
+                                      profit >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                                    )}>
+                                      {profitPercent >= 0 ? `+${profitPercent.toFixed(1)}%` : `${profitPercent.toFixed(1)}%`}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-[9px] font-['GM'] text-gray-400 mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+                                  <span>Provider Cost:</span>
+                                  <span className="font-['GB'] text-gray-700">₹{baseRate.toFixed(2)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
                     {/* Interactive Service Tagging & Badges Controls */}
                     <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
                       <div className="flex items-center justify-between">
@@ -1836,19 +2431,47 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                         {/* Refill Guarantee */}
                         <div className="space-y-1">
                           <label className="text-[10px] font-['GPB'] text-gray-600 uppercase tracking-wider block">Refill Guarantee</label>
-                          <select
-                            value={refillMap[activeCleanId] || "auto"}
-                            onChange={(e) => handleFieldChange("refillTag", e.target.value, activeSvc)}
-                            className="w-full h-8 text-xs font-['GM'] bg-white border border-gray-300 rounded-lg px-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                          >
-                            <option value="auto">Auto-Detect</option>
-                            <option value="No Refill">❌ No Refill</option>
-                            <option value="30 Days">🔄 30 Days Refill</option>
-                            <option value="60 Days">🔄 60 Days Refill</option>
-                            <option value="90 Days">🔄 90 Days Refill</option>
-                            <option value="365 Days">🔄 365 Days Refill</option>
-                            <option value="Lifetime">♾️ Lifetime Guarantee</option>
-                          </select>
+                          {(() => {
+                            const currentRefillVal = refillMap[activeCleanId] || "auto";
+                            const presetOptions = ["auto", "No Refill", "7 Days", "15 Days", "30 Days", "60 Days", "90 Days", "180 Days", "365 Days", "Lifetime"];
+                            const isCustom = !presetOptions.includes(currentRefillVal) && currentRefillVal !== "";
+
+                            return (
+                              <div className="space-y-1">
+                                <select
+                                  value={isCustom ? "custom" : currentRefillVal}
+                                  onChange={(e) => {
+                                    if (e.target.value === "custom") {
+                                      handleFieldChange("refillTag", "15 Days Refill", activeSvc);
+                                    } else {
+                                      handleFieldChange("refillTag", e.target.value, activeSvc);
+                                    }
+                                  }}
+                                  className="w-full h-8 text-xs font-['GM'] bg-white border border-gray-300 rounded-lg px-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                >
+                                  <option value="auto">Auto-Detect</option>
+                                  <option value="No Refill">❌ No Refill</option>
+                                  <option value="7 Days">🔄 7 Days Refill</option>
+                                  <option value="15 Days">🔄 15 Days Refill</option>
+                                  <option value="30 Days">🔄 30 Days Refill</option>
+                                  <option value="60 Days">🔄 60 Days Refill</option>
+                                  <option value="90 Days">🔄 90 Days Refill</option>
+                                  <option value="180 Days">🔄 180 Days Refill</option>
+                                  <option value="365 Days">🔄 365 Days Refill</option>
+                                  <option value="Lifetime">♾️ Lifetime Guarantee</option>
+                                  <option value="custom">✏️ Custom Refill Value...</option>
+                                </select>
+                                {isCustom && (
+                                  <Input
+                                    value={currentRefillVal}
+                                    onChange={(e) => handleFieldChange("refillTag", e.target.value, activeSvc)}
+                                    placeholder="e.g. 15 Days Refill"
+                                    className="h-7 text-xs font-['GM'] bg-white border-emerald-300 focus:ring-emerald-500"
+                                  />
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         {/* Drop & Stability */}
@@ -1883,50 +2506,123 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
                       </div>
                     </div>
 
-                    {/* User-Side Service Card Live Preview */}
-                    <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-xl p-4 text-white shadow-md border border-indigo-500/20">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-['GPB'] uppercase tracking-widest text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                          Live User Service Card Preview
-                        </span>
-                        <span className="text-[11px] font-['GPB'] text-emerald-400 flex items-center gap-1">
-                          ★ 4.9 <span className="text-gray-400 font-['GM']">(User View)</span>
-                        </span>
-                      </div>
-                      <h4 className="text-sm font-['GB'] text-white line-clamp-1 mb-2">
-                        {groupNameMap[activeCleanId] || cleanServiceName(activeSvc.name || activeSvc.providerName || "").groupName}
-                      </h4>
-                      <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/10 rounded-lg text-xs font-['GM'] text-indigo-200">
-                          <span>{variantNameMap[activeCleanId] || cleanServiceName(activeSvc.name || activeSvc.providerName || "").variantName}</span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-xs text-gray-400 mr-1 font-['GM']">Rate:</span>
-                          <span className="text-sm font-['GB'] text-emerald-400">
-                            ₹{sellPriceMap[activeCleanId] || Math.ceil((activeSvc.rate || activeSvc.ratePer1000 || 0) * 1.5)} <span className="text-[10px] text-gray-400 font-['GM']">/ 1k</span>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                    {/* Descriptions Header with Custom vs Original Toggle */}
+                    {(() => {
+                      const currentMode = descViewModeMap[activeCleanId] || "edited";
+                      const origDesc = activeSvc.desc || activeSvc.description || activeSvc.displayDescription || "";
+                      const customDesc = descriptionMap[activeCleanId] ?? origDesc;
 
-                    {/* Descriptions Header — always visible */}
-                    <div className="flex items-center pb-2 border-b border-gray-100">
-                      <div className="flex items-center gap-2 px-2.5 py-1 bg-[#F5F5F5] rounded-lg text-[11px] font-['GPB'] text-gray-600">
-                        <div className="w-4 h-4 rounded-full bg-[#E0E0E0] flex items-center justify-center text-[9px] text-gray-500">
-                          i
-                        </div>
-                        Description
-                      </div>
-                    </div>
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 border border-purple-100 rounded-lg text-[11px] font-['GPB'] text-purple-900">
+                                <FileText className="w-3.5 h-3.5 text-purple-600" />
+                                Service Description
+                              </div>
+                            </div>
 
-                    {/* Description Text — always shown */}
-                    <div className="text-[12px] font-['GM'] text-gray-600 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar rounded-lg bg-gray-50/60 p-3 border border-gray-100">
-                      {activeSvc.desc || activeSvc.description || activeSvc.displayDescription || (
-                        <span className="text-gray-400 italic">
-                          {`This provider (${providerName}) does not supply a description for this service. Type: ${activeSvc.type || "Default"}`}
-                        </span>
-                      )}
-                    </div>
+                            {/* Toggle Buttons: Custom Edited vs Original Provider */}
+                            <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+                              <button
+                                type="button"
+                                onClick={() => setDescViewModeMap(prev => ({ ...prev, [activeCleanId]: "edited" }))}
+                                className={cn(
+                                  "px-2.5 py-1 text-[10px] font-['GPB'] rounded-md transition-all flex items-center gap-1",
+                                  currentMode === "edited"
+                                    ? "bg-white text-purple-700 shadow-xs border border-gray-200"
+                                    : "text-gray-500 hover:text-gray-900"
+                                )}
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                Custom (Edited)
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setDescViewModeMap(prev => ({ ...prev, [activeCleanId]: "original" }))}
+                                className={cn(
+                                  "px-2.5 py-1 text-[10px] font-['GPB'] rounded-md transition-all flex items-center gap-1",
+                                  currentMode === "original"
+                                    ? "bg-white text-blue-700 shadow-xs border border-gray-200"
+                                    : "text-gray-500 hover:text-gray-900"
+                                )}
+                              >
+                                <Clock className="w-3 h-3" />
+                                Original Provider
+                              </button>
+                            </div>
+                          </div>
+
+                          {currentMode === "edited" ? (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-['GPB'] text-purple-900 uppercase tracking-wider">
+                                  Customer Visible Description (Editable)
+                                </span>
+                                {origDesc && customDesc !== origDesc && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleFieldChange("description", origDesc, activeSvc);
+                                      toast.success("Reset description to original provider text.");
+                                    }}
+                                    className="text-[10px] font-['GM'] text-purple-600 hover:underline"
+                                  >
+                                    Reset to Original
+                                  </button>
+                                )}
+                                {origDesc && (customDesc === "" || !descriptionMap[activeCleanId]) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleFieldChange("description", origDesc, activeSvc);
+                                    }}
+                                    className="text-[10px] font-['GM'] text-purple-600 hover:underline"
+                                  >
+                                    Copy Original Text
+                                  </button>
+                                )}
+                              </div>
+                              <Textarea
+                                value={descriptionMap[activeCleanId] ?? origDesc}
+                                onChange={(e) => handleFieldChange("description", e.target.value, activeSvc)}
+                                placeholder="Write custom service details or instructions for your customers..."
+                                className="min-h-[100px] text-xs font-['GM'] bg-white border-purple-200 focus:border-purple-500 focus:ring-purple-500/20 rounded-xl"
+                              />
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-['GPB'] text-blue-900 uppercase tracking-wider">
+                                  Original Provider Description ({providerName})
+                                </span>
+                                {origDesc && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleFieldChange("description", origDesc, activeSvc);
+                                      setDescViewModeMap(prev => ({ ...prev, [activeCleanId]: "edited" }));
+                                      toast.success("Copied original description to custom edit mode.");
+                                    }}
+                                    className="text-[10px] font-['GPB'] text-blue-600 hover:underline flex items-center gap-1"
+                                  >
+                                    Copy to Custom Edit →
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-[12px] font-['GM'] text-gray-700 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar rounded-xl bg-blue-50/40 p-3 border border-blue-100">
+                                {origDesc || (
+                                  <span className="text-gray-400 italic">
+                                    {`This provider (${providerName}) does not supply a description for this service.`}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Metrics Grid */}
                     <div className="grid grid-cols-2 lg:grid-cols-3 gap-y-8 gap-x-6 pt-6 border-t border-gray-100 mt-auto">
@@ -2040,6 +2736,17 @@ export function CatalogPicker({ catalogServices, rawServices: initialServices, p
            </div>
         </div>
       )}
+
+      {/* Taxonomy Manager Modal */}
+      <TaxonomyManagerModal
+        isOpen={isTaxonomyModalOpen}
+        onClose={() => setIsTaxonomyModalOpen(false)}
+        catalogServices={initialServices}
+        onTaxonomyUpdated={(updated) => {
+          setTaxonomyCategories(updated.categories);
+          if (onTaxonomyChange) onTaxonomyChange(updated.categories);
+        }}
+      />
     </div>
   );
 }

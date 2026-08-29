@@ -261,13 +261,16 @@ func (h *Handler) GetSingleOrder(w http.ResponseWriter, r *http.Request) {
 	// Initialize new fields
 	o.RefillsRemaining = int(orderRow.RefillsRemaining)
 	
-	// We'll fetch pending requests to check flags
-	pendingReqs, _ := h.db.Queries.GetPendingOrderRequestsByOrder(context.Background(), int32(orderID))
-	for _, req := range pendingReqs {
-		if req.RequestType == "cancel" {
-			o.PendingCancel = true
-		} else if req.RequestType == "refill" {
-			o.PendingRefill = true
+	// We'll fetch pending requests to check flags only if order is not in terminal state
+	isTerminal := o.Status == "completed" || o.Status == "canceled" || o.Status == "refunded" || o.Status == "failed"
+	if !isTerminal {
+		pendingReqs, _ := h.db.Queries.GetPendingOrderRequestsByOrder(context.Background(), int32(orderID))
+		for _, req := range pendingReqs {
+			if req.RequestType == "cancel" {
+				o.PendingCancel = true
+			} else if req.RequestType == "refill" {
+				o.PendingRefill = true
+			}
 		}
 	}
 
@@ -543,8 +546,9 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "success",
-		"order":  resp,
+		"status":   "success",
+		"order_id": orderID,
+		"order":    resp,
 	})
 }
 

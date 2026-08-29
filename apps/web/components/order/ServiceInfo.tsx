@@ -233,7 +233,7 @@ export default function ServiceInfo({ services, index = 0, onChangeIndex, servic
       if (m <= thresholds.fast) return 'Fast';
       if (m <= thresholds.normal) return 'Normal';
       if (m <= thresholds.slow) return 'Slow';
-      return 'Unstable';
+      return isYoutube ? 'Slow' : 'Unstable';
     }
 
     // Fallback to text matching ONLY when minutes is missing or zero
@@ -374,13 +374,17 @@ export default function ServiceInfo({ services, index = 0, onChangeIndex, servic
   const platformLabel = capitalize(current?.platform ?? 'instagram');
 
   // Extract variant name for display
-  let variantName: string | null = current?.variant && !['any', 'Default', 'Standard'].includes(String(current.variant)) ? String(current.variant) : null;
+  let variantName: string | null = (current as any)?.variantName || null;
+  if (!variantName && current?.variant && !['any', 'Default', 'Standard'].includes(String(current.variant))) {
+    const rawV = String(current.variant);
+    variantName = rawV.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
   if (!variantName && current?.tags && Array.isArray(current.tags)) {
     for (const t of current.tags) {
       if (t.startsWith('variant_name:')) {
         const tagVariant = t.replace('variant_name:', '').trim();
-        if (tagVariant && !['Standard', 'Default'].includes(tagVariant)) {
-          variantName = tagVariant;
+        if (tagVariant && !['Standard', 'Default', 'any'].includes(tagVariant)) {
+          variantName = tagVariant.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
           break;
         }
       }
@@ -388,8 +392,19 @@ export default function ServiceInfo({ services, index = 0, onChangeIndex, servic
   }
 
   const baseName = current?.displayName || current?.providerName || 'Service';
-  const displayTitle = variantName ? `${baseName} — ${variantName}` : baseName;
+
+  // Check if variantName is redundant with baseName or a generic category name
+  const isRedundant = variantName && (
+    baseName.toLowerCase().includes(variantName.toLowerCase()) ||
+    variantName.toLowerCase().includes(baseName.toLowerCase()) ||
+    ['custom comments', 'random comments', 'comments', 'followers', 'likes', 'views', 'shares', 'repost'].includes(variantName.toLowerCase())
+  );
+
+  const displayTitle = (variantName && !isRedundant) ? `${baseName} — ${variantName}` : baseName;
   const title = current ? `${displayTitle} · ${current.displayId || ''}` : 'Service';
+
+  const cleanType = capitalize(current?.type || 'Comments');
+  const typeVariant = (variantName && !isRedundant) ? ` (${variantName})` : '';
 
   return (
     <div className='service-info-container'>
@@ -416,7 +431,7 @@ export default function ServiceInfo({ services, index = 0, onChangeIndex, servic
         </div>
         <div className="detail-item">
           <span className="detail-label">SERVICE TYPE</span>
-          <span className="detail-value">{current ? `${current.type}${variantName ? ` (${variantName})` : ''}` : 'Likes/Reactions'}</span>
+          <span className="detail-value">{current ? `${cleanType}${typeVariant}` : 'Likes/Reactions'}</span>
         </div>
         <div className="detail-item">
           <span className="detail-label">DRIPFEED</span>

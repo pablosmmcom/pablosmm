@@ -38,52 +38,47 @@ export function cleanServiceName(rawName: string): CleanedNameResult {
   // 3. Strip Emojis
   name = name.replace(/[\p{Emoji_Presentation}]/gu, "");
 
-  // 4. Extract Base Name vs Variant String based on first 2-3 words
-  let words = name.trim().split(/\s+/);
-  let groupName = words.slice(0, 2).join(" ");
-  let variantString = words.slice(2).join(" ");
+  // 4. Check for explicit variant separators or bracketed guarantees
+  let overrideVariant = "";
+  const refillMatch = rawName.match(/\[.*?(30|60|90|365|Lifetime|Auto|Refill).*?\]/i) || rawName.match(/\((.*?(30|60|90|365|Lifetime|Refill).*?)\)/i);
+  if (refillMatch) {
+    const rawRefill = refillMatch[1] || refillMatch[0];
+    if (/lifetime/i.test(rawRefill)) overrideVariant = "Lifetime Guarantee";
+    else if (/365/i.test(rawRefill)) overrideVariant = "365 Days Guarantee";
+    else if (/90/i.test(rawRefill)) overrideVariant = "90 Days Guarantee";
+    else if (/60/i.test(rawRefill)) overrideVariant = "60 Days Guarantee";
+    else if (/30/i.test(rawRefill)) overrideVariant = "30 Days Guarantee";
+    else if (/refill/i.test(rawRefill)) overrideVariant = "Auto Refill";
+  }
 
-  const coreKeywords = ["views", "likes", "comments", "followers", "subscribers", "shares", "retweets", "members"];
-  if (words.length > 2 && coreKeywords.includes(words[2].toLowerCase())) {
-    groupName = words.slice(0, 3).join(" ");
-    variantString = words.slice(3).join(" ");
+  let groupName = name.trim();
+  let variantString = "";
+
+  // Check if there is an explicit separator like ' - ', ' : ', ' | ', ' -- '
+  const sepMatch = name.match(/^(.*?)\s+(?:[-:|—]|--)\s+(.*)$/);
+  if (sepMatch && sepMatch[1] && sepMatch[2]) {
+    groupName = sepMatch[1].trim();
+    variantString = sepMatch[2].trim();
+  } else {
+    // Strip brackets to see if a variant was inside brackets
+    groupName = groupName.replace(/\[[^\]]*\]/g, "").replace(/\([^\)]*\)/g, "").trim();
   }
 
   // 5. Clean Variant String
   let v = variantString;
-  
-  // Extract specific guarantees from brackets if present before stripping brackets
-  let overrideVariant = "";
-  const refillMatch = rawName.match(/\[.*?(30|60|90|365|Lifetime|Auto|Refill).*?\]/i) || rawName.match(/\((.*?(30|60|90|365|Lifetime|Refill).*?)\)/i);
-  if (refillMatch && words.length <= 2) {
-      // If the string was very short, we might not have a variant string.
-      const rawRefill = refillMatch[1] || refillMatch[0];
-      if (/lifetime/i.test(rawRefill)) overrideVariant = "Lifetime Guarantee";
-      else if (/365/i.test(rawRefill)) overrideVariant = "365 Days Guarantee";
-      else if (/90/i.test(rawRefill)) overrideVariant = "90 Days Guarantee";
-      else if (/60/i.test(rawRefill)) overrideVariant = "60 Days Guarantee";
-      else if (/30/i.test(rawRefill)) overrideVariant = "30 Days Guarantee";
-      else if (/refill/i.test(rawRefill)) overrideVariant = "Auto Refill";
-  }
-
-  // Strip brackets from variant
   v = v.replace(/\[[^\]]*\]/g, "");
   v = v.replace(/\([^\)]*(speed|d|day|refill|instant|cheap|fast|min|hrs|max|r30|r60|r90|hq|real|non-drop|working)[^\)]*\)/gi, "");
-
-  // Strip spammy speed/max text
   v = v.replace(/\b(MAX|SPEED|STARTS)\s*[\d.KkMm]+[\s-]*\b/gi, "");
   v = v.replace(/\b[\d.KkMm+]+(\/Day| Day)\b/gi, "");
   v = v.replace(/\b\d+\s*(?:K|M|B)\b(?!\s*(?:Likes|Followers|Views|Comments|Shares))/gi, "");
   v = v.replace(/\b(INSTANT|WORKING|PREMIUM|CHEAP)\b/gi, "");
-
-  // Clean punctuation
   v = v.replace(/[-|:🔢♻️⚡🚀💧👤]+/g, " ");
   v = v.replace(/\s+/g, " ").trim();
   v = v.replace(/^\W+/, "").replace(/\W+$/, "");
 
-  // Clean Capitalization
+  // Capitalize neatly
+  groupName = groupName.replace(/\s+/g, " ").trim();
   v = v.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
-  groupName = groupName.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
 
   let finalVariant = overrideVariant || v;
   if (!finalVariant || finalVariant.length < 2) {
@@ -93,7 +88,7 @@ export function cleanServiceName(rawName: string): CleanedNameResult {
   }
 
   return { 
-    groupName: groupName, 
+    groupName: groupName || "Service", 
     variantName: finalVariant 
   };
 }

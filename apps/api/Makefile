@@ -31,6 +31,14 @@ run: build
 migrate:
 	go run ./cmd/goose/main.go up
 
+## Backup catalog, overrides, and settings to JSON
+backup:
+	go run ./cmd/backup/main.go
+
+## Restore catalog, overrides, and settings from latest JSON backup
+restore:
+	go run ./cmd/backup/main.go -restore latest
+
 # ─── Docker ──────────────────────────────────────────────────
 
 ## Build Docker image

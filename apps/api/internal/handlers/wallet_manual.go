@@ -456,7 +456,7 @@ func (h *Handler) ApproveWalletRequest(w http.ResponseWriter, r *http.Request) {
 	status := reqRow.Status
 
 	if status.String != "pending" {
-		log.Printf("Request %d not pending: %s", id, status)
+		log.Printf("Request %d not pending: %s", id, status.String)
 		http.Error(w, "Request already processed", http.StatusBadRequest)
 		return
 	}

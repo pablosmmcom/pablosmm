@@ -60,54 +60,49 @@ export function getServiceTags(service: NormalizedSmmService | any): ServiceTagD
   let refillLabel = 'No Refill';
 
   if (explicitRefillTag && explicitRefillTag !== "auto") {
-    if (explicitRefillTag === "No Refill") {
+    if (explicitRefillTag === "No Refill" || explicitRefillTag === "0 Days") {
       hasRefill = false;
       refillStatus = 'No Refill';
       refillLabel = 'No Refill';
     } else {
       hasRefill = true;
       refillStatus = 'Available';
-      refillLabel = explicitRefillTag.toLowerCase().includes("refill") || explicitRefillTag.toLowerCase().includes("guarantee")
-        ? explicitRefillTag 
-        : `${explicitRefillTag} Refill`;
+      const cleanVal = explicitRefillTag.trim();
+      refillLabel = cleanVal.toLowerCase().includes("refill") || cleanVal.toLowerCase().includes("guarantee")
+        ? cleanVal 
+        : `${cleanVal} Refill`;
     }
   } else {
-    // Fallback to description regex parsing if explicitRefillTag is "auto" or missing
+    // Smart auto-detect from fullText
+    const explicitDayMatch = fullText.match(/\b(\d+)\s*(?:days?|d)\s*(?:refill|guarantee|warranty)?\b/i) ||
+                             fullText.match(/\b(?:refill|guarantee|warranty)\s*:?\s*(\d+)\s*(?:days?|d)?\b/i);
+
     const isExplicitNoRefill = 
       /\b(no\s*refill|non\s*refill|without\s*refill|no-refill|non-refill|refill\s*:\s*(?:no|false|0|none|off|disabled)|0\s*days?\s*refill|no\s*guarantee|no\s*warranty|without\s*guarantee)\b/i.test(fullText);
 
     const isExplicitRefill = 
-      /\b(refill|guarantee|warranty|auto\s*refill|\br30\b|\br60\b|\br90\b|\br365\b)\b/i.test(fullText);
+      /\b(refill|guarantee|warranty|auto\s*refill|\br\d+\b)\b/i.test(fullText);
 
-    if (isExplicitNoRefill) {
+    if (explicitDayMatch && explicitDayMatch[1] !== '0') {
+      hasRefill = true;
+      refillStatus = 'Available';
+      refillLabel = `${explicitDayMatch[1]} Days Refill`;
+    } else if (fullText.includes('lifetime') || fullText.includes('permanent')) {
+      hasRefill = true;
+      refillStatus = 'Available';
+      refillLabel = 'Lifetime Guarantee';
+    } else if (isExplicitNoRefill) {
       hasRefill = false;
+      refillStatus = 'No Refill';
+      refillLabel = 'No Refill';
     } else if (service.refill === true || isExplicitRefill) {
       hasRefill = true;
+      refillStatus = 'Available';
+      refillLabel = '30 Days Refill';
     } else {
       hasRefill = false;
-    }
-
-    if (hasRefill) {
-      refillStatus = 'Available';
-      if (fullText.includes('lifetime') || fullText.includes('permanent')) {
-        refillLabel = 'Lifetime Refill';
-      } else {
-        const dayMatch = fullText.match(/\b(365|180|120|90|60|30|14|7)\s*(?:days?|d)?\b(?:\s*(?:refill|guarantee|warranty))?/i) ||
-                         fullText.match(/\b(\d+)\s*(?:days?|d)\b/i) ||
-                         fullText.match(/\b(?:r|refill\s*for\s*)(\d+)\b/i);
-        if (dayMatch) {
-          const num = dayMatch[1];
-          if (num === '0') {
-            hasRefill = false;
-            refillStatus = 'No Refill';
-            refillLabel = 'No Refill';
-          } else {
-            refillLabel = `${num} Days Refill`;
-          }
-        } else {
-          refillLabel = '30 Days Refill';
-        }
-      }
+      refillStatus = 'No Refill';
+      refillLabel = 'No Refill';
     }
   }
 
@@ -173,8 +168,13 @@ export function getServiceTags(service: NormalizedSmmService | any): ServiceTagD
       tags.push({ label: 'Slow Speed', icon: '/order/instant.png', className: 'slow', type: 'speed' });
       speedStatus = 'Slow Speed';
     } else {
-      tags.push({ label: 'Unstable', icon: '/order/instant.png', className: 'unstable', type: 'speed' });
-      speedStatus = 'Unstable';
+      if (isYoutube) {
+        tags.push({ label: 'Gradual', icon: '/order/instant.png', className: 'slow', type: 'speed' });
+        speedStatus = 'Slow Speed';
+      } else {
+        tags.push({ label: 'Unstable', icon: '/order/instant.png', className: 'unstable', type: 'speed' });
+        speedStatus = 'Unstable';
+      }
     }
   } else if (nameStr.includes('instant') || descStr.includes('instant')) {
     tags.push({ label: 'Instant', icon: '/order/instant.png', className: 'instant', type: 'speed' });

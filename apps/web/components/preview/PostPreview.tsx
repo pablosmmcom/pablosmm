@@ -52,6 +52,7 @@ const PostPreview: React.FC<Props> = ({ metric = 'likes', metricCount = 120, use
           fill
           className='blur-bg'
           priority
+          unoptimized
         />
         <Image
           src={imageUrl || '/bg.png'}
@@ -59,6 +60,7 @@ const PostPreview: React.FC<Props> = ({ metric = 'likes', metricCount = 120, use
           width={300}
           height={300}
           className='main-image'
+          unoptimized
         />
       </div>
       <div className="post-details">

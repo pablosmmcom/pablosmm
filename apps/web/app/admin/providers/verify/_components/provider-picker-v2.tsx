@@ -181,6 +181,7 @@ const STANDARD_CATEGORIES: Record<string, { id: string; name: string }[]> = {
   facebook: [
     { id: "followers", name: "Page Followers & Likes" },
     { id: "likes", name: "Post Likes & Reactions" },
+    { id: "reactions", name: "Post & Story Reactions" },
     { id: "views", name: "Video & Reel Views" },
     { id: "comments", name: "Comments" },
     { id: "shares", name: "Shares" },

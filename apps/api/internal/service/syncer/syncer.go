@@ -165,6 +165,11 @@ func (s *OrderSyncer) SyncOrders(ctx context.Context) {
 								})
 							}
 
+							// If order is completed, canceled, refunded or failed, resolve any pending cancel requests
+							if localStatus == "completed" || localStatus == "canceled" || localStatus == "refunded" || localStatus == "failed" {
+								_, _ = s.db.Pool.Exec(ctx, "UPDATE order_requests SET status = 'processed', updated_at = NOW() WHERE order_id = $1 AND status = 'pending'", localID)
+							}
+
 							tx.Commit(ctx)
 						}
 					}

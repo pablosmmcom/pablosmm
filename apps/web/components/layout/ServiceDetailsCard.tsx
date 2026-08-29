@@ -58,6 +58,17 @@ const ServiceDetailsCard: React.FC<ServiceDetailsCardProps> = ({
   const [expanded, setExpanded] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
 
+  const getPlatformIcon = (name: string = "") => {
+    const haystack = name.toLowerCase();
+    if (haystack.includes('instagram') || haystack.includes('ig')) return '/orders/platforms/instagram.png';
+    if (haystack.includes('facebook') || haystack.includes('fb')) return '/orders/platforms/facebook.png';
+    if (haystack.includes('twitter') || haystack.includes('x ') || haystack === 'x') return '/orders/platforms/x.png';
+    if (haystack.includes('tiktok') || haystack.includes('tt')) return '/orders/platforms/tiktok.png';
+    if (haystack.includes('youtube') || haystack.includes('yt')) return '/orders/platforms/youtube.png';
+    if (haystack.includes('telegram') || haystack.includes('tg')) return '/orders/platforms/telegram.png';
+    return '/orders/platforms/instagram.png';
+  };
+
   return (
     <div className={`service-details-card ${expanded ? 'expanded' : ''}`}>
       <div className="sd-header" onClick={() => setExpanded(!expanded)}>
@@ -72,7 +83,7 @@ const ServiceDetailsCard: React.FC<ServiceDetailsCardProps> = ({
 
       <div className="sd-body">
         <div className="sd-platform">
-          <Image src="/orders/platforms/instagram.png" alt="Platform" width={44} height={44} className="sd-platform-icon" />
+          <Image src={getPlatformIcon(serviceName)} alt="Platform" width={44} height={44} className="sd-platform-icon" />
           <h3>{serviceName}</h3>
         </div>
 

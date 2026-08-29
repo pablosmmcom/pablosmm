@@ -42,13 +42,17 @@ export default function ServiceCard({ group, quantity, mode = 'qty', budgetUsd, 
 
   // Use platform icon
   const getIcon = () => {
-    switch (group.platform) {
-      case 'instagram': return '/orders/platforms/instagram.png'
-      case 'tiktok': return '/orders/platforms/tiktok.png'
-      case 'youtube': return '/orders/platforms/youtube.png'
-      case 'telegram': return '/orders/platforms/telegram.png'
-      case 'x': return '/orders/platforms/x.png'
-      default: return '/orders/platforms/instagram.png' // fallback
+    const p = (group.platform || '').toLowerCase();
+    switch (p) {
+      case 'facebook': return '/orders/platforms/facebook.png';
+      case 'instagram': return '/orders/platforms/instagram.png';
+      case 'tiktok': return '/orders/platforms/tiktok.png';
+      case 'youtube': return '/orders/platforms/youtube.png';
+      case 'telegram': return '/orders/platforms/telegram.png';
+      case 'whatsapp': return '/orders/platforms/whatsapp.png';
+      case 'x':
+      case 'twitter': return '/orders/platforms/x.png';
+      default: return '/orders/platforms/instagram.png';
     }
   }
 
@@ -68,14 +72,42 @@ export default function ServiceCard({ group, quantity, mode = 'qty', budgetUsd, 
       ? (typeof avgTimeRaw === "number" ? avgTimeRaw : parseFloat(String(avgTimeRaw)))
       : NaN;
 
-    let tierId = "unknown";
-    let tierLabel = "? Unknown";
+    let tierId = "normal";
+    let tierLabel = "Normal";
     let deliverySpeed = "N/A";
-    let timeStr = "No data";
+    let timeStr = "Starts in < 1 hr";
 
     const fullText = `${group.baseName || ''} ${service.displayName || service.providerName || ''} ${service.displayDescription || service.description || (service as any).desc || ''}`;
-    
-    // Parse explicit speed from text (e.g. 50K/Day)
+    const platform = (service.platform || "").toLowerCase();
+    const isYoutube = platform === "youtube";
+
+    // 1. Detect start time: PREFER real averageTime if available, otherwise fallback to text / default
+    if (!isNaN(minutes) && minutes > 0) {
+      if (minutes <= 10) {
+        timeStr = 'Instantly';
+      } else if (minutes <= 60) {
+        timeStr = '< 1 hr';
+      } else if (minutes <= 1440) {
+        const hrs = Math.round(minutes / 60);
+        timeStr = hrs <= 1 ? '< 1 hr' : `~${hrs} hrs`;
+      } else {
+        const days = (minutes / 1440).toFixed(1);
+        timeStr = `~${days} days`;
+      }
+    } else {
+      const startMatch = fullText.match(/start[s]?\s*(?:in|time)?\s*:?\s*([<~]?\s*\d+(?:\.\d+)?\s*(?:mins?|hrs?|hours?|d|days?))/i);
+      if (startMatch) {
+        timeStr = startMatch[1];
+      } else if (fullText.toLowerCase().includes('instant')) {
+        timeStr = 'Instantly';
+      } else if (isYoutube) {
+        timeStr = '< 12 hrs';
+      } else {
+        timeStr = '< 1 hr';
+      }
+    }
+
+    // 2. Parse daily delivery speed if present
     let statedQty: number | null = null;
     const speedMatch = fullText.match(/(\d+(?:\.\d+)?)\s*([kKmM])?\s*(?:\+|[+-]|\s*-\s*\d+\s*[kKmM]?)?\s*\/\s*(?:day|d)/i);
     if (speedMatch) {
@@ -116,34 +148,44 @@ export default function ServiceCard({ group, quantity, mode = 'qty', budgetUsd, 
       deliverySpeed = `~${formatShort(statedQty)}/Day`;
     }
 
-    if (!isNaN(minutes) && minutes > 0) {
-      if (minutes < 1) timeStr = "< 1 min";
-      else if (minutes < 60) timeStr = `~${Math.round(minutes)} mins`;
-      else if (minutes < 1440) {
-        const hrs = minutes / 60;
-        timeStr = hrs < 2 ? `~${Math.round(hrs * 10) / 10} hr` : `~${Math.round(hrs)} hrs`;
+    // 3. Assign Speed & Stability Tier
+    if (isYoutube) {
+      if (!isNaN(minutes) && minutes > 0) {
+        if (minutes <= 10) { tierId = "instant"; tierLabel = "Instant"; }
+        else if (minutes <= 120) { tierId = "fast"; tierLabel = "Fast"; }
+        else if (minutes <= 720) { tierId = "normal"; tierLabel = "Normal"; }
+        else { tierId = "slow"; tierLabel = "Gradual"; }
       } else {
-        const days = minutes / 1440;
-        timeStr = days < 2 ? `~${Math.round(days * 10) / 10} day` : `~${Math.round(days)} days`;
+        tierId = "fast";
+        tierLabel = "Safe Speed";
       }
-
-      const platform = (service.platform || "").toLowerCase();
-      const isYoutube = platform === "youtube";
-      const thresholds = isYoutube ? { fast: 120, normal: 720, slow: 2880 } : { fast: 30, normal: 120, slow: 720 };
-
+    } else if (!isNaN(minutes) && minutes > 0) {
       if (minutes <= 10) { tierId = "instant"; tierLabel = "Instant"; }
-      else if (minutes <= thresholds.fast) { tierId = "fast"; tierLabel = "Fast"; }
-      else if (minutes <= thresholds.normal) { tierId = "normal"; tierLabel = "Normal"; }
-      else if (minutes <= thresholds.slow) { tierId = "slow"; tierLabel = "Slow"; }
+      else if (minutes <= 30) { tierId = "fast"; tierLabel = "Fast"; }
+      else if (minutes <= 120) { tierId = "normal"; tierLabel = "Normal"; }
+      else if (minutes <= 720) { tierId = "slow"; tierLabel = "Slow"; }
       else { tierId = "unstable"; tierLabel = "Unstable"; }
     } else if (statedQty !== null) {
       tierId = "fast";
       tierLabel = "Fast";
-      timeStr = "< 30 mins";
+    } else {
+      // Fallback to tagData.speed when provider stats are missing
+      if (tagData.speed === 'Instant') { tierId = "instant"; tierLabel = "Instant"; }
+      else if (tagData.speed === 'Fast') { tierId = "fast"; tierLabel = "Fast"; }
+      else if (tagData.speed === 'Slow Speed') { tierId = "slow"; tierLabel = "Slow"; }
+      else if (tagData.speed === 'Unstable') { tierId = "unstable"; tierLabel = "Unstable"; }
+      else { tierId = "normal"; tierLabel = "Normal"; }
+    }
+
+    if (deliverySpeed === "N/A") {
+      if (tierId === "instant") deliverySpeed = "~50K - 100K/Day";
+      else if (tierId === "fast") deliverySpeed = "~20K - 50K/Day";
+      else if (tierId === "slow") deliverySpeed = "~2K - 10K/Day";
+      else deliverySpeed = "~10K - 30K/Day";
     }
     
-    return { tierId, tierLabel, deliverySpeed, timeStr, hasData: (!isNaN(minutes) && minutes > 0) || statedQty !== null };
-  }, [service, group.baseName]);
+    return { tierId, tierLabel, deliverySpeed, timeStr, hasData: true };
+  }, [service, group.baseName, tagData.speed]);
 
   const handleCardClick = () => {
     if (isGroupDisabled) return;
@@ -157,18 +199,18 @@ export default function ServiceCard({ group, quantity, mode = 'qty', budgetUsd, 
       onClick={handleCardClick}
       style={{ cursor: onSelect && !isGroupDisabled ? 'pointer' : 'default', opacity: isGroupDisabled ? 0.5 : 1 }}
     >
-      {speedData.hasData && (
-        <div className="top-badges-row">
-          <div className={`speed-badge left-badge ${speedData.tierId}`}>
-            <span className="speed-dot"></span>
-            <span className="speed-text">{speedData.tierLabel} | Starts in {speedData.timeStr}</span>
-          </div>
-          <div className="speed-badge right-badge">
-            <span className="lightning-icon">⚡</span>
-            <span className="speed-text">Speed: {speedData.deliverySpeed}</span>
-          </div>
+      <div className="top-badges-row">
+        <div className={`speed-badge left-badge ${speedData.tierId}`}>
+          <span className="speed-dot"></span>
+          <span className="speed-text">
+            {speedData.tierLabel} | {speedData.timeStr.toLowerCase().includes('instantly') ? 'Starts Instantly' : `Starts in ${speedData.timeStr}`}
+          </span>
         </div>
-      )}
+        <div className="speed-badge right-badge">
+          <span className="lightning-icon">⚡</span>
+          <span className="speed-text">Speed: {speedData.deliverySpeed}</span>
+        </div>
+      </div>
 
       <div className="card-header">
         <div className="left">

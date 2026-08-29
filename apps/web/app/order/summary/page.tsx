@@ -6,7 +6,7 @@ import Preview from '@/components/preview/Preview'
 import { useNormalizedServices } from '@/lib/useServices'
 import { useSearchParams } from 'next/navigation'
 import React, { Suspense, useMemo, useState, startTransition, useRef } from 'react'
-import ConfirmModal from '@/components/ui/ConfirmModal'
+import OrderConfirmModal from '@/components/order/OrderConfirmModal'
 import { toast } from 'sonner'
 import type { Platform, ServiceType, Variant, NormalizedSmmService } from '@/types/smm'
 import FollowerPreview from '@/components/preview/FollowerPreview';
@@ -45,6 +45,13 @@ function matchesVariantFilter(s: NormalizedSmmService, variant: string): boolean
   if (!variant || variant === 'any') return true;
 
   const v = variant.toLowerCase();
+
+  // 1. If service has an explicit sub-category binding (e.g. 'profile', 'channel', 'post', 'reel')
+  if (s.variant && (s.variant as string) !== 'any') {
+    return (s.variant as string).toLowerCase() === v;
+  }
+
+  // 2. Unbound / General services (variant === 'any') match keyword rules
   const text = `${s.variant ?? ''} ${s.displayName ?? ''} ${s.providerName ?? ''} ${s.category ?? ''} ${s.description ?? ''}`.toLowerCase();
 
   if (v === 'custom') {
@@ -119,6 +126,28 @@ function matchesVariantFilter(s: NormalizedSmmService, variant: string): boolean
   return s.variant === variant || text.includes(v);
 }
 
+function matchesPlatformAndService(s: NormalizedSmmService, targetPlatform: string, targetService: string): boolean {
+  if (s.platform?.toLowerCase() !== targetPlatform.toLowerCase()) return false;
+  const sType = (s.type || s.category || '').toLowerCase().trim();
+  const tgt = targetService.toLowerCase().trim();
+  if (sType === tgt) return true;
+
+  // Handle YouTube followers / subscribers
+  if (targetPlatform.toLowerCase() === 'youtube' && (sType === 'followers' || sType === 'subscribers') && (tgt === 'followers' || tgt === 'subscribers')) {
+    return true;
+  }
+  // Handle Facebook followers / page_followers
+  if (targetPlatform.toLowerCase() === 'facebook' && (sType === 'followers' || sType === 'page_followers') && (tgt === 'followers' || tgt === 'page_followers')) {
+    return true;
+  }
+  // Handle save/saves, repost/reposts, share/shares
+  if ((sType === 'saves' || sType === 'save') && (tgt === 'saves' || tgt === 'save')) return true;
+  if ((sType === 'repost' || sType === 'reposts') && (tgt === 'repost' || tgt === 'reposts')) return true;
+  if ((sType === 'shares' || sType === 'share') && (tgt === 'shares' || tgt === 'share')) return true;
+
+  return false;
+}
+
 function getAdminBadge(s: any): string | undefined {
   if (!s) return undefined;
   if (s.badge) return s.badge;
@@ -161,12 +190,24 @@ function computeBestRatedScore(s: any): number {
   else if (speed === 'Slow Speed') score -= 10;
   else if (speed === 'Unstable') score -= 40;
 
-  // 4. Average Time bonus
+  // 4. Average Time bonus / penalty (trust fast average times significantly more)
   const avgMins = parseAvgMins(s);
+  const platform = (s?.platform || '').toLowerCase();
+  const isYoutube = platform === 'youtube';
+
   if (avgMins < 9999) {
-    if (avgMins <= 10) score += 20;
-    else if (avgMins <= 60) score += 15;
-    else if (avgMins <= 360) score += 10;
+    if (avgMins <= 10) score += 40;       // Ultra fast / instant start
+    else if (avgMins <= 30) score += 30;  // Very fast (< 30 mins)
+    else if (avgMins <= 60) score += 20;  // Fast (< 1 hour)
+    else if (avgMins <= 180) score += 10; // Decent (< 3 hours)
+    else if (avgMins <= 360) score += 5;  // Moderate (< 6 hours)
+    else if (isYoutube && avgMins <= 1440) score += 5; // Normal YT batch delivery (< 24 hours)
+    else if (isYoutube && avgMins > 1440) score -= 10; // Very late YT
+    else if (!isYoutube && avgMins > 360) {
+      // For Instagram and standard platforms, late average time (> 6 hours) is progressively penalized
+      const hoursOver = (avgMins - 360) / 60;
+      score -= Math.min(60, 20 + Math.round(hoursOver * 5));
+    }
   }
 
   return score;
@@ -204,8 +245,8 @@ const SummaryContent = () => {
   const { baseList, availableTagsByType, allSortedTags } = useMemo(() => {
     const bySearch = search.trim().toLowerCase();
     const list = all.filter((s) => {
-      // 1. Strictly enforce active platform and service type selection
-      if (s.platform !== platform || s.type !== service) return false;
+      // 1. Strictly enforce active platform and service type selection (with synonym tolerance)
+      if (!matchesPlatformAndService(s, platform, service)) return false;
 
       // 2. Enforce variant / sub-category filter
       if (!matchesVariantFilter(s, variant)) return false;
@@ -417,9 +458,23 @@ const SummaryContent = () => {
 
   const showComments = useMemo(() => {
     if (!selectedService) return false;
-    const name = (selectedService.displayName || selectedService.providerName || '').toLowerCase();
+    const isComments = String(service) === 'comments' || String(service) === 'comment';
+    if (!isComments) return false;
+
+    const name = (selectedService.displayName || selectedService.providerName || (selectedService as any).name || '').toLowerCase();
     const cat = (selectedService.category || '').toLowerCase();
-    return service === 'comments' && (name.includes('custom') || cat.includes('custom'));
+    const variant = (selectedService.variant || (selectedService as any).variantName || '').toLowerCase();
+    const rawType = ((selectedService.raw as any)?.type || '').toLowerCase();
+
+    // If it's explicitly random comments, user does NOT input custom comments
+    const isRandom = variant.includes('random') || name.includes('random') || cat.includes('random') || rawType === 'default';
+    if (isRandom && !variant.includes('custom') && !name.includes('custom') && !rawType.includes('custom')) {
+      return false;
+    }
+
+    // Only show for custom comments
+    const isCustom = variant.includes('custom') || name.includes('custom') || cat.includes('custom') || rawType.includes('custom_comments');
+    return isCustom;
   }, [selectedService, service]);
 
   async function handleOrder() {
@@ -463,10 +518,16 @@ const SummaryContent = () => {
 
   // confirm modal state and handler
   const [confirmOpen, setConfirmOpen] = useState(false);
-  async function doConfirmedOrder() {
+  async function doConfirmedOrder(finalLink?: string) {
     if (!selectedService) {
       setOrderStatus('No service selected');
       setConfirmOpen(false);
+      return;
+    }
+
+    const orderLink = (finalLink !== undefined ? finalLink : link).trim();
+    if (!orderLink) {
+      toast.error('Please enter a target link or username');
       return;
     }
     
@@ -484,7 +545,7 @@ const SummaryContent = () => {
         serviceId: selectedService.id,
         sourceServiceId: selectedService.sourceServiceId,
         quantity,
-        link,
+        link: orderLink,
       };
 
       if (showComments && comments.length > 0) {
@@ -553,12 +614,22 @@ const SummaryContent = () => {
           duration: 4000,
         });
         setOrderStatus("Order submitted successfully.");
+        setTimeout(() => {
+          if (body?.order_id) {
+            window.location.href = `/orders/${body.order_id}`;
+          } else {
+            window.location.href = `/orders`;
+          }
+        }, 1200);
       } else if (body?.error) {
         toast.error("Error", { description: body.error });
         setOrderStatus(body.error);
       } else {
         toast.success("Order Placed Successfully!");
         setOrderStatus("Order submitted successfully.");
+        setTimeout(() => {
+          window.location.href = `/orders`;
+        }, 1200);
       }
     } catch (err: any) {
       setOrderStatus(`Request failed: ${err?.message ?? String(err)}`);
@@ -869,11 +940,13 @@ const SummaryContent = () => {
         </div>
       )}
 
-      <ConfirmModal
+      <OrderConfirmModal
         open={confirmOpen}
-        title="Place order"
-        message={`Place order for ${quantity} units on ${selectedService?.displayName || 'this service'}?`}
-        confirmLabel="Place order"
+        service={selectedService}
+        quantity={quantity}
+        totalPrice={pricePerUnit * quantity}
+        initialLink={link}
+        ordering={ordering}
         onConfirm={doConfirmedOrder}
         onCancel={() => setConfirmOpen(false)}
       />

@@ -148,7 +148,7 @@ export function OrderDetailsDialog({ order, open, onOpenChange, onSuccess }: Ord
                                 <span>{order.serviceName}</span>
                                 <span className="text-muted-foreground text-xs">Display ID: {order.displayId}</span>
                                 <span className="text-muted-foreground text-xs">Provider Order ID: #{order.providerOrderId || 'N/A'}</span>
-                                <span className="text-muted-foreground text-xs">Source Service ID: {order.serviceId}</span>
+                                <span className="text-muted-foreground text-xs">Source Service ID: {order.sourceServiceId || order.serviceId}</span>
                             </div>
                         </div>
                         <div className="grid grid-cols-3 items-center gap-4">

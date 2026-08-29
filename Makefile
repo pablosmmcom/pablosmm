@@ -21,6 +21,14 @@ dev-web:
 dev-api:
 	cd apps/api && $(MAKE) dev
 
+## Backup catalog, overrides, and settings to JSON
+backup:
+	cd apps/api && $(MAKE) backup
+
+## Restore catalog, overrides, and settings from latest JSON backup
+restore:
+	cd apps/api && $(MAKE) restore
+
 # ─── Build ───────────────────────────────────────────────────
 
 ## Build all

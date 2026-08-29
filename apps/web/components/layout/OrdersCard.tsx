@@ -93,41 +93,36 @@ const getServiceTypeIcon = (serviceType: string = ""): string => {
 const OrdersCard: React.FC<OrdersCardProps> = ({ orders = [], onCancel, cancellingId, variant = "list" }) => {
   const { convertPrice } = useAuth();
   const renderStatus = (o: Order) => {
+    const s = (o.status || '').toLowerCase();
+    if (s === "completed") return "Completed";
+    if (s === "canceled") return "Canceled";
+    if (s === "refunded") return "Refunded";
+    if (s === "failed") return "Failed";
+    if (s === "partial") return "Partial";
     if (o.pendingCancel) return "Canceling";
-    const s = o.status;
-    switch (s) {
-      case "completed": return "Completed";
-      case "active": return "Active";
-      case "pending": return "Pending";
-      case "processing": return "Processing";
-      case "canceled": return "Canceled";
-      case "refunded": return "Refunded";
-      case "failed": return "Failed";
-      case "partial": return "Partial";
-      default: return s;
-    }
+    if (s === "active") return "Active";
+    if (s === "pending") return "Pending";
+    if (s === "processing" || s === "submitted") return "Processing";
+    return o.status;
   };
 
   const mapStatusForClass = (o: Order) => {
-    if (o.pendingCancel) return "active"; // use active color for canceling
-    const s = o.status;
-    if (s === 'canceled') return 'failed';
-    if (s === 'refunded') return 'failed';
-    if (s === 'processing') return 'active';
-    if (s === 'pending') return 'active';
-    if (s === 'submitted') return 'active';
-    if (s === 'partial') return 'active';
+    const s = (o.status || '').toLowerCase();
+    if (s === 'completed') return 'completed';
+    if (s === 'canceled' || s === 'refunded' || s === 'failed') return 'failed';
+    if (o.pendingCancel) return "active";
+    if (s === 'processing' || s === 'pending' || s === 'submitted' || s === 'partial' || s === 'active') return 'active';
     return s;
-  }
+  };
 
-  const getPlatformIcon = (serviceName: string = "") => {
-    const name = serviceName.toLowerCase();
-    if (name.includes('instagram') || name.includes('ig')) return '/orders/platforms/instagram.png';
-    if (name.includes('facebook') || name.includes('fb')) return '/orders/platforms/facebook.png';
-    if (name.includes('twitter') || name.includes('x ')) return '/orders/platforms/x.png';
-    if (name.includes('tiktok')) return '/orders/platforms/tiktok.png';
-    if (name.includes('youtube')) return '/orders/platforms/youtube.png';
-    if (name.includes('telegram')) return '/orders/platforms/telegram.png';
+  const getPlatformIcon = (serviceName: string = "", serviceType: string = "") => {
+    const haystack = `${serviceName} ${serviceType}`.toLowerCase();
+    if (haystack.includes('instagram') || haystack.includes('ig')) return '/orders/platforms/instagram.png';
+    if (haystack.includes('facebook') || haystack.includes('fb')) return '/orders/platforms/facebook.png';
+    if (haystack.includes('twitter') || haystack.includes('x ') || haystack === 'x') return '/orders/platforms/x.png';
+    if (haystack.includes('tiktok') || haystack.includes('tt')) return '/orders/platforms/tiktok.png';
+    if (haystack.includes('youtube') || haystack.includes('yt')) return '/orders/platforms/youtube.png';
+    if (haystack.includes('telegram') || haystack.includes('tg')) return '/orders/platforms/telegram.png';
     return '/orders/platforms/instagram.png'; 
   };
 
@@ -145,7 +140,7 @@ const OrdersCard: React.FC<OrdersCardProps> = ({ orders = [], onCancel, cancelli
               <div key={o.id} className={`order-card ${mapStatusForClass(o)}`}>
                 <div className="order-card-top">
                   <div className="order-info-group">
-                    <img src={getPlatformIcon(o.serviceName)} alt="Platform" className="platform-icon" />
+                    <img src={getPlatformIcon(o.serviceName, o.serviceType)} alt="Platform" className="platform-icon" />
                     <div className="order-text-col">
                       <div className="order-number">Order #{o.id}</div>
                       <h3 className="order-title">

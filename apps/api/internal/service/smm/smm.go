@@ -42,6 +42,7 @@ type NormalizedSmmService struct {
 	Platform            string      `json:"platform"`
 	ServiceType         string      `json:"type"`
 	Variant             string      `json:"variant"`
+	VariantName         string      `json:"variantName,omitempty"`
 	Name                string      `json:"name"`
 	ProviderName        string      `json:"providerName"`
 	Description         string      `json:"description"`
@@ -93,6 +94,10 @@ type ProviderService struct {
 
 func New(database *db.DB, cfg *config.Config) *ProviderService {
 	return &ProviderService{db: database, cfg: cfg}
+}
+
+var httpClient = &http.Client{
+	Timeout: 12 * time.Second,
 }
 
 // Regex definitions for detection (ported from original TypeScript)
@@ -222,40 +227,50 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 	}
 
 	var allFetched []FetchedServiceList
+	var fetchWg sync.WaitGroup
+	var fetchMu sync.Mutex
 
 	for _, target := range targets {
 		if target.ApiUrl == "" || target.ApiKey == "" {
 			continue
 		}
-		formData := url.Values{}
-		formData.Set("key", target.ApiKey)
-		formData.Add("action", "services")
 
-		resp, err := http.PostForm(target.ApiUrl, formData)
-		if err != nil {
-			log.Printf("ERROR: failed to fetch services for provider %s: %v", target.Key, err)
-			continue
-		}
+		fetchWg.Add(1)
+		go func(tgt ProviderTarget) {
+			defer fetchWg.Done()
 
-		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			log.Printf("ERROR: provider %s returned status %d", target.Key, resp.StatusCode)
-			continue
-		}
+			formData := url.Values{}
+			formData.Set("key", tgt.ApiKey)
+			formData.Add("action", "services")
 
-		var rawServices []PanelV2Service
-		if err := json.NewDecoder(resp.Body).Decode(&rawServices); err != nil {
-			resp.Body.Close()
-			log.Printf("ERROR: failed to decode services for provider %s: %v", target.Key, err)
-			continue
-		}
-		resp.Body.Close()
+			resp, err := httpClient.PostForm(tgt.ApiUrl, formData)
+			if err != nil {
+				log.Printf("ERROR: failed to fetch services for provider %s: %v", tgt.Key, err)
+				return
+			}
+			defer resp.Body.Close()
 
-		allFetched = append(allFetched, FetchedServiceList{
-			Provider: target,
-			Services: rawServices,
-		})
+			if resp.StatusCode != http.StatusOK {
+				log.Printf("ERROR: provider %s returned status %d", tgt.Key, resp.StatusCode)
+				return
+			}
+
+			var rawServices []PanelV2Service
+			if err := json.NewDecoder(resp.Body).Decode(&rawServices); err != nil {
+				log.Printf("ERROR: failed to decode services for provider %s: %v", tgt.Key, err)
+				return
+			}
+
+			fetchMu.Lock()
+			allFetched = append(allFetched, FetchedServiceList{
+				Provider: tgt,
+				Services: rawServices,
+			})
+			fetchMu.Unlock()
+		}(target)
 	}
+
+	fetchWg.Wait()
 
 		// Build live provider map
 	liveData := make(map[string]PanelV2Service)
@@ -273,14 +288,19 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 		catalog = nil
 	}
 
-	overridesMap := make(map[string][]string)
-	rows, err := s.db.Pool.Query(context.Background(), "SELECT source_service_id, tags FROM service_overrides")
+	type OverrideInfo struct {
+		Tags               []string
+		DisplayDescription string
+		DisplayName        string
+	}
+	overridesMap := make(map[string]OverrideInfo)
+	rows, err := s.db.Pool.Query(context.Background(), "SELECT source_service_id, tags, COALESCE(display_description, ''), COALESCE(display_name, '') FROM service_overrides")
 	if err == nil {
 		for rows.Next() {
-			var sid string
+			var sid, desc, name string
 			var tags []string
-			if err := rows.Scan(&sid, &tags); err == nil {
-				overridesMap[sid] = tags
+			if err := rows.Scan(&sid, &tags, &desc, &name); err == nil {
+				overridesMap[sid] = OverrideInfo{Tags: tags, DisplayDescription: desc, DisplayName: name}
 			}
 		}
 		rows.Close()
@@ -316,6 +336,9 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 			cancel = toBool(raw.Cancel)
 			dripfeed = toBool(raw.Dripfeed)
 			desc = raw.Description
+			if desc == "" {
+				desc = raw.Desc
+			}
 			providerCategory = raw.Category
 		}
 
@@ -329,15 +352,42 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 		if catSvc.Category.Valid {
 			category = catSvc.Category.String
 		}
-		variant := ""
-		if catSvc.VariantName.Valid {
-			variant = catSvc.VariantName.String
+
+		// Fail-safe platform resolution ONLY if platform is not explicitly set in pablo_catalog
+		if platform == "" || platform == "other" {
+			lowerName := strings.ToLower(fmt.Sprintf("%s %s %s", catSvc.Name, providerCategory, category))
+			if strings.Contains(lowerName, "youtube") || strings.Contains(lowerName, "subscriber") || strings.Contains(lowerName, "shorts") {
+				platform = "youtube"
+			} else if strings.Contains(lowerName, "facebook") || strings.Contains(lowerName, "page follower") {
+				platform = "facebook"
+			} else if strings.Contains(lowerName, "telegram") || strings.Contains(lowerName, "channel member") || strings.Contains(lowerName, "group member") || strings.Contains(lowerName, "bot start") {
+				platform = "telegram"
+			} else if strings.Contains(lowerName, "tiktok") {
+				platform = "tiktok"
+			} else if strings.Contains(lowerName, "twitter") || strings.Contains(lowerName, "retweet") {
+				platform = "x"
+			} else if strings.Contains(lowerName, "whatsapp") {
+				platform = "whatsapp"
+			} else if strings.Contains(lowerName, "threads") {
+				platform = "threads"
+			} else if strings.Contains(lowerName, "instagram") {
+				platform = "instagram"
+			}
 		}
 
-		var badge, stability, quality string
-		tags := overridesMap[fullSID]
-		if tags == nil {
-			tags = overridesMap[providerServiceID]
+		variantName := ""
+		if catSvc.VariantName.Valid {
+			variantName = catSvc.VariantName.String
+		}
+
+		var badge, stability, quality, subCatVariant string
+		overrideInfo := overridesMap[fullSID]
+		if len(overrideInfo.Tags) == 0 && overrideInfo.DisplayDescription == "" {
+			overrideInfo = overridesMap[providerServiceID]
+		}
+		tags := overrideInfo.Tags
+		if overrideInfo.DisplayDescription != "" {
+			desc = overrideInfo.DisplayDescription
 		}
 
 		for _, t := range tags {
@@ -347,7 +397,26 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 				stability = strings.TrimPrefix(t, "stability:")
 			} else if strings.HasPrefix(t, "quality:") {
 				quality = strings.TrimPrefix(t, "quality:")
+			} else if strings.HasPrefix(t, "variant:") {
+				subCatVariant = strings.TrimPrefix(t, "variant:")
 			}
+		}
+
+		variant := subCatVariant
+		if variant == "" {
+			variant = "any"
+		}
+
+		displayName := catSvc.Name
+		if overrideInfo.DisplayName != "" {
+			displayName = overrideInfo.DisplayName
+		}
+
+		canonicalCat := category
+		if platform == "youtube" && (category == "subscribers" || category == "followers") {
+			canonicalCat = "followers"
+		} else if platform == "facebook" && (category == "followers" || category == "page_followers") {
+			canonicalCat = "page_followers"
 		}
 
 		n := NormalizedSmmService{
@@ -355,14 +424,15 @@ func (s *ProviderService) FetchServices() ([]NormalizedSmmService, error) {
 			Source:                       providerKey,
 			SourceServiceID:              providerServiceID,
 			Platform:                     platform,
-			ServiceType:                  category,
+			ServiceType:                  canonicalCat,
 			Variant:                      variant,
+			VariantName:                  variantName,
 			Name:                         catSvc.Name,
 			ProviderName:                 catSvc.Name,
 			Description:                  desc,
-			Category:                     category,
+			Category:                     canonicalCat,
 			ProviderCategory:             providerCategory,
-			DisplayName:                  catSvc.Name,
+			DisplayName:                  displayName,
 			DisplayDescription:           desc,
 			BaseRatePer1000:              0, 
 			RatePer1000:                  sellPrice.Float64, 
@@ -530,7 +600,7 @@ func (s *ProviderService) PlaceOrder(providerKey, serviceID, quantity, link stri
 	formData.Set("link", link)
 	formData.Set("quantity", quantity)
 
-	resp, err := http.PostForm(apiURL, formData)
+	resp, err := httpClient.PostForm(apiURL, formData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to place order: %v", err)
 	}
@@ -559,7 +629,7 @@ func (s *ProviderService) CancelOrder(providerKey, orderID string) (map[string]i
 	formData.Set("action", "cancel")
 	formData.Set("order", orderID)
 
-	resp, err := http.PostForm(apiURL, formData)
+	resp, err := httpClient.PostForm(apiURL, formData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to cancel order: %v", err)
 	}
@@ -584,7 +654,7 @@ func (s *ProviderService) RefillOrder(providerKey, orderID string) (map[string]i
 	formData.Set("action", "refill")
 	formData.Set("order", orderID)
 
-	resp, err := http.PostForm(apiURL, formData)
+	resp, err := httpClient.PostForm(apiURL, formData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to refill order: %v", err)
 	}
@@ -609,7 +679,7 @@ func (s *ProviderService) GetOrderStatus(providerKey string, orderIDs []string) 
 	formData.Set("action", "status")
 	formData.Set("orders", strings.Join(orderIDs, ","))
 
-	resp, err := http.PostForm(apiURL, formData)
+	resp, err := httpClient.PostForm(apiURL, formData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch order status: %v", err)
 	}

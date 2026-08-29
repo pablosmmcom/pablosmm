@@ -131,7 +131,10 @@ func New(cfg *config.Config, database *db.DB, smmSvc *smm.ProviderService) *http
 
 			r.Get("/admin/settings", h.GetSettings)
 			r.Post("/admin/settings", h.UpdateSettings)
+			r.Post("/admin/taxonomy", h.UpdateTaxonomy)
 		})
+
+		r.Get("/taxonomy", h.GetPublicTaxonomy)
 	})
 
 	return &http.Server{

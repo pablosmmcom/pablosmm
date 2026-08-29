@@ -13,6 +13,13 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'unavatar.io' },
       { protocol: 'https', hostname: 'api.dicebear.com' },
       { protocol: 'https', hostname: 'flagcdn.com' },
+      { protocol: 'https', hostname: 'telegram.org' },
+      { protocol: 'https', hostname: '**.telegram.org' },
+      { protocol: 'https', hostname: 't.me' },
+      { protocol: 'https', hostname: '**.tiktokcdn.com' },
+      { protocol: 'https', hostname: '**.tiktok.com' },
+      { protocol: 'https', hostname: 'tiktok.com' },
+      { protocol: 'https', hostname: '**.akamaized.net' },
     ],
   },
   async rewrites() {

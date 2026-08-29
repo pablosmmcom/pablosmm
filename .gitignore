@@ -56,6 +56,9 @@ services.json
 services_all.json
 provider_topsmm_services.json
 *.generated.ts
+backups/*.json
+backups/db_backup*
+backups/pablo_catalog_backup*
 
 # ── Binaries & tools ────────────────────────────────────────
 *.jar

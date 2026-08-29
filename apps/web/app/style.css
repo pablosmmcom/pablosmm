@@ -627,7 +627,7 @@ h6 {
   scrollbar-width: none;
 }
 .root .order-page .platform-container .platforms .platform-card {
-  flex: 1 0 auto;
+  flex: none;
   background: #1a1a1a;
   border-radius: 12px;
   padding: 12px;
@@ -5960,6 +5960,7 @@ button:focus {
   flex-direction: column;
   gap: 16px;
   margin: 0 16px;
+  padding-bottom: 16px;
 }
 .service-list-card {
   display: flex;
@@ -6079,11 +6080,12 @@ button:focus {
   display: flex;
   flex-direction: row;
   gap: 6px;
-  align-items: center;
+  align-items: flex-start;
 }
 .service-list-card .card-header .left .platform-wrapper .platform-icon {
   width: 30px;
   height: 30px;
+  object-fit: contain;
 }
 .service-list-card .card-header .left .platform-wrapper .title {
   font-family: GSB;
@@ -6091,7 +6093,7 @@ button:focus {
   font-size: 0.78rem;
   margin: 0;
   line-height: 13px;
-  max-width: 104px;
+  max-width: 154px;
   text-transform: capitalize;
 }
 .service-list-card .card-header .left .stats-row {
@@ -6142,6 +6144,7 @@ button:focus {
   white-space: nowrap;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  z-index: 1;
 }
 .service-list-card .tags-row::-webkit-scrollbar {
   display: none;
@@ -6161,6 +6164,7 @@ button:focus {
   line-height: 1;
   letter-spacing: -0.3px;
   white-space: nowrap;
+  min-height: 20px;
 }
 .service-list-card .tags-row .tag img {
   width: 12px;

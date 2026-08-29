@@ -56,11 +56,12 @@ async function request<T = unknown>(endpoint: string, options: RequestInit = {})
 		try {
 			const parsed = JSON.parse(errorText);
 			if (parsed.error) errorMessage = parsed.error;
-			if (parsed.message) errorMessage = parsed.message;
+			else if (parsed.message) errorMessage = parsed.message;
 		} catch {
 			if (errorText) errorMessage = errorText;
 		}
-		throw new Error(errorMessage);
+		console.error(`[apiClient] Request to ${options.method || 'GET'} ${url} failed with ${res.status}:`, errorMessage);
+		throw new Error(`[${options.method || 'GET'} ${cleanEndpoint}] ${errorMessage}`);
 	}
 
 	return res.json() as Promise<T>;

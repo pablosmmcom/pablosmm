@@ -18,6 +18,7 @@ const page = () => {
   const [link, setLink] = useState<string>('');
 
   const handlePlatformChange = (platformName: string) => {
+    if (platformName === activePlatform) return;
     setActivePlatform(platformName as Platform);
     // Reset service and variant when platform changes
     setActiveService('followers');
@@ -25,6 +26,7 @@ const page = () => {
   };
 
   const handleServiceChange = (serviceName: string) => {
+    if (serviceName === activeService) return;
     setActiveService(serviceName as ServiceType);
     setActiveVariant('any');
   };
