@@ -49,6 +49,11 @@ const LinkInput: React.FC<LinkInputProps> = ({ onLinkChange, onContinue, value, 
             placeholder="Paste your link here"
             value={displayLink}
             onChange={handleInputChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onContinue();
+              }
+            }}
             readOnly={isSimulated}
           />
         </div>

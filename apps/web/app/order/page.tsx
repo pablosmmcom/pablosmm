@@ -1,6 +1,7 @@
 "use client"
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation'; // Import useRouter
+import { toast } from 'sonner';
 import PlatformSelector from '@/components/order/PlatformSelector';
 import ServiceSelector from '@/components/order/ServiceSelector';
 import { serviceCategories } from '@/lib/constants';
@@ -36,6 +37,11 @@ const page = () => {
   };
 
   const handleContinue = () => {
+    if (!link || !link.trim()) {
+      toast.error('Please enter or paste your link before continuing.');
+      return;
+    }
+
     // Redirect to the desired URL with the parameters
     const qp = new URLSearchParams({
       platform: String(activePlatform),
@@ -51,7 +57,7 @@ const page = () => {
       <PlatformSelector onPlatformChange={handlePlatformChange} activePlatform={activePlatform} />
       <ServiceSelector activeService={activeService} activePlatform={activePlatform} onServiceChange={handleServiceChange} />
       <VariantSelector platform={activePlatform as Platform} serviceType={activeService as ServiceType} activeVariant={activeVariant} onVariantChange={setActiveVariant} />
-      <LinkInput onLinkChange={handleLinkChange} onContinue={handleContinue} />
+      <LinkInput value={link} onLinkChange={handleLinkChange} onContinue={handleContinue} />
     </div>
   );
 };
