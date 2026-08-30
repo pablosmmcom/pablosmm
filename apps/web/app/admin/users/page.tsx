@@ -9,6 +9,8 @@ import { Card } from "@/components/admin/ui/card";
 import { getApiBaseUrl } from "@/lib/config";
 import { Loader2, Search } from "lucide-react";
 
+import { toast } from "sonner";
+
 export default function UsersPage() {
     const [data, setData] = useState<AdminUser[]>([]);
     const [loading, setLoading] = useState(true);
@@ -64,6 +66,51 @@ export default function UsersPage() {
         return () => clearTimeout(timer);
     }, [fetchUsers]);
 
+    const handleImpersonate = async (user: AdminUser) => {
+        try {
+            toast.loading(`Switching session to ${user.name || user.email}...`, { id: "impersonate" });
+            
+            // Backup current admin auth token
+            const cookies = document.cookie.split(";");
+            let currentToken = "";
+            for (const c of cookies) {
+                const [k, v] = c.trim().split("=");
+                if (k === "auth_token") currentToken = v;
+            }
+            if (currentToken) {
+                localStorage.setItem("pablo_admin_backup_token", currentToken);
+            }
+
+            const res = await fetch(`${getApiBaseUrl()}/admin/users/${user.id}/impersonate`, {
+                method: "POST",
+                credentials: "include",
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || "Failed to switch user session");
+            }
+
+            // Save user details in localStorage for the banner
+            localStorage.setItem("pablo_impersonated_user", JSON.stringify({
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                username: user.name,
+                role: user.role,
+                balance: user.balance,
+            }));
+
+            toast.success(`Now speculating as ${user.name || user.email}!`, { id: "impersonate" });
+            
+            // Hard redirect to load user storefront session
+            window.location.href = "/order";
+        } catch (error: any) {
+            console.error("Impersonation error:", error);
+            toast.error(error.message || "Failed to login as user", { id: "impersonate" });
+        }
+    };
+
     const handleRowClick = (user: AdminUser, tab: "profile" | "wallet" = "profile") => {
         setSelectedUser(user);
         setDefaultTab(tab);
@@ -104,7 +151,9 @@ export default function UsersPage() {
                             data={data}
                             onRowClick={(row) => handleRowClick(row.original, "profile")}
                             onAction={(action, user) => {
-                                if (action === "wallet") {
+                                if (action === "impersonate") {
+                                    handleImpersonate(user);
+                                } else if (action === "wallet") {
                                     handleRowClick(user, "wallet");
                                 } else {
                                     handleRowClick(user, "profile");
@@ -120,6 +169,7 @@ export default function UsersPage() {
                 onOpenChange={setDialogOpen}
                 user={selectedUser}
                 onSuccess={fetchUsers}
+                onImpersonate={handleImpersonate}
                 defaultTab={defaultTab}
             />
         </div>

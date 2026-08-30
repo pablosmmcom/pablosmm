@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/admin/ui/
 import { AdminUser } from "./columns";
 import { getApiBaseUrl } from "@/lib/config";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye } from "lucide-react";
 import { OrdersTable } from "../../orders/_components/orders-table";
 import { columns } from "../../orders/_components/columns";
 
@@ -32,10 +32,11 @@ interface ManageUserDialogProps {
     onOpenChange: (open: boolean) => void;
     user: AdminUser | null;
     onSuccess: () => void;
+    onImpersonate?: (user: AdminUser) => void;
     defaultTab?: "profile" | "wallet";
 }
 
-export function ManageUserDialog({ open, onOpenChange, user, onSuccess, defaultTab = "wallet" }: ManageUserDialogProps) {
+export function ManageUserDialog({ open, onOpenChange, user, onSuccess, onImpersonate, defaultTab = "wallet" }: ManageUserDialogProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Wallet State
@@ -144,11 +145,25 @@ export function ManageUserDialog({ open, onOpenChange, user, onSuccess, defaultT
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[600px]">
-                <DialogHeader>
-                    <DialogTitle>Manage User: {user.name}</DialogTitle>
-                    <DialogDescription>
-                        Update user details, manage wallet, or view history.
-                    </DialogDescription>
+                <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <div>
+                        <DialogTitle>Manage User: {user.name}</DialogTitle>
+                        <DialogDescription>
+                            Update user details, manage wallet, or view history.
+                        </DialogDescription>
+                    </div>
+                    {onImpersonate && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="border-amber-500/40 text-amber-500 hover:bg-amber-500/10 hover:text-amber-400 gap-1.5 h-8 font-semibold text-xs"
+                            onClick={() => onImpersonate(user)}
+                        >
+                            <Eye className="h-3.5 w-3.5" />
+                            Login as User
+                        </Button>
+                    )}
                 </DialogHeader>
 
                 <Tabs defaultValue={defaultTab} className="w-full">

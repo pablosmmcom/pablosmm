@@ -239,6 +239,30 @@ const Howworks = () => {
   // Determine fade of intro text based on phone sliding up
   const introVisible = phoneEntranceProgress < 0.5;
 
+  const handleSkip = useCallback(() => {
+    const root = document.querySelector('.root') as HTMLElement;
+    if (!outerRef.current || !root) return;
+
+    const nextEl = outerRef.current.nextElementSibling as HTMLElement;
+    if (nextEl) {
+      const rootRect = root.getBoundingClientRect();
+      const nextRect = nextEl.getBoundingClientRect();
+      const targetScroll = root.scrollTop + (nextRect.top - rootRect.top);
+      root.scrollTo({
+        top: targetScroll,
+        behavior: 'smooth',
+      });
+    } else {
+      const rootRect = root.getBoundingClientRect();
+      const elRect = outerRef.current.getBoundingClientRect();
+      const targetScroll = root.scrollTop + (elRect.bottom - rootRect.top);
+      root.scrollTo({
+        top: targetScroll,
+        behavior: 'smooth',
+      });
+    }
+  }, []);
+
   return (
     <div
       ref={outerRef}
@@ -353,6 +377,18 @@ const Howworks = () => {
                 {currentStep.subtitle}
               </motion.p>
             </AnimatePresence>
+
+            {/* Skip button below subtitle */}
+            <div className="hw-skip-wrapper">
+              <button 
+                type="button"
+                className="hw-skip-btn"
+                onClick={handleSkip}
+                aria-label="Skip to next section"
+              >
+                Skip <span>↓</span>
+              </button>
+            </div>
           </motion.div>
 
           {/* Bottom — Phone area (Flex layout to perfectly fit below text) */}

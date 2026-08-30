@@ -116,6 +116,7 @@ func New(cfg *config.Config, database *db.DB, smmSvc *smm.ProviderService) *http
 			r.Get("/admin/users/{id}", h.GetUser)
 			r.Post("/admin/users/{id}/wallet", h.UpdateUserWallet)
 			r.Patch("/admin/users/{id}", h.UpdateUser)
+			r.Post("/admin/users/{id}/impersonate", h.ImpersonateUser)
 
 			r.Get("/admin/orders", h.GetAdminOrders)
 			r.Post("/admin/orders/{id}/refund", h.RefundOrder)

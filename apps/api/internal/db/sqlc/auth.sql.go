@@ -49,8 +49,8 @@ func (q *Queries) CheckUserExists(ctx context.Context, arg CheckUserExistsParams
 }
 
 const createGoogleUser = `-- name: CreateGoogleUser :one
-INSERT INTO users (name, email, google_id, avatar_url, role, username)
-VALUES ($1, $2, $3, $4, 'user', $5)
+INSERT INTO users (name, email, google_id, avatar_url, role, username, currency)
+VALUES ($1, $2, $3, $4, 'user', $5, 'INR')
 RETURNING id, role
 `
 
@@ -81,8 +81,8 @@ func (q *Queries) CreateGoogleUser(ctx context.Context, arg CreateGoogleUserPara
 }
 
 const createUser = `-- name: CreateUser :exec
-INSERT INTO users (name, email, username, mobile, password_hash, role)
-VALUES ($1, $2, $3, $4, $5, 'user')
+INSERT INTO users (name, email, username, mobile, password_hash, role, currency)
+VALUES ($1, $2, $3, $4, $5, 'user', 'INR')
 `
 
 type CreateUserParams struct {
@@ -145,7 +145,7 @@ SELECT
     u.email, 
     COALESCE(u.mobile, '')::text as mobile, 
     u.role, 
-    COALESCE(u.currency, 'USD')::text as currency,
+    COALESCE(u.currency, 'INR')::text as currency,
     u.created_at, 
     COALESCE(u.password_hash, '')::text as password_hash,
     COALESCE(w.balance, 0)::int as balance,

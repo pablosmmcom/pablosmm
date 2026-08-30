@@ -87,8 +87,10 @@ const QuantitySlider: React.FC<QuantitySliderProps> = ({
   };
 
   const snapToStep = (v: number) => {
+    if (v <= min) return min;
+    if (v >= max) return max;
     const step = stepFor(v);
-    const snapped = Math.round((v - min) / step) * step + min;
+    const snapped = Math.round(v / step) * step;
     return Math.max(min, Math.min(max, snapped));
   };
 
@@ -269,9 +271,8 @@ const QuantitySlider: React.FC<QuantitySliderProps> = ({
                 onBlur={() => {
                   const parsed = parseInt(editingValue || String(min), 10);
                   const clamped = Math.min(max, Math.max(min, isNaN(parsed) ? min : parsed));
-                  const snapped = snapToStep(clamped);
-                  setQuantity(snapped);
-                  onChange?.(snapped);
+                  setQuantity(clamped);
+                  onChange?.(clamped);
                   setIsEditing(false);
                 }}
                 onKeyDown={(e) => {

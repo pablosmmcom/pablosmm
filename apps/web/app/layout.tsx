@@ -3,6 +3,7 @@ import Script from "next/script";
 import "./style.css";
 import { CurrencyProvider } from "@/components/layout/CurrencyProvider";
 import RootShell from "@/components/layout/RootShell";
+import ImpersonationBanner from "@/components/layout/ImpersonationBanner";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { Toaster } from "sonner";
 
@@ -46,6 +47,7 @@ export default function RootLayout({
         </Script>
         <CurrencyProvider>
           <AuthProvider>
+            <ImpersonationBanner />
             <RootShell>{children}</RootShell>
             <Toaster richColors position="bottom-center" />
           </AuthProvider>

@@ -3,7 +3,7 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/admin/ui/badge";
 import { Button } from "@/components/admin/ui/button";
-import { MoreHorizontal, ShieldCheck, Mail, Wallet, User as UserIcon } from "lucide-react";
+import { MoreHorizontal, ShieldCheck, Mail, Wallet, User as UserIcon, Eye } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -28,7 +28,6 @@ export type AdminUser = {
 };
 
 // Component for formatting price
-// Component for formatting price
 const BalanceCell = ({ amount }: { amount: number }) => {
     // Hardcoded to INR for now as per user request
     const formatINR = (value: number) => {
@@ -47,10 +46,7 @@ const BalanceCell = ({ amount }: { amount: number }) => {
     );
 };
 
-// ... imports
-
 export const getColumns = (onAction: (action: string, user: AdminUser) => void): ColumnDef<AdminUser>[] => [
-    // ... other columns (same as before)
     {
         accessorKey: "id",
         header: ({ column }) => <DataTableColumnHeader column={column} title="User" />,
@@ -150,6 +146,14 @@ export const getColumns = (onAction: (action: string, user: AdminUser) => void):
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onAction("wallet", user); }}>
                             Manage Wallet
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                            onClick={(e) => { e.stopPropagation(); onAction("impersonate", user); }}
+                            className="text-amber-500 font-semibold focus:text-amber-400 focus:bg-amber-500/10 cursor-pointer"
+                        >
+                            <Eye className="mr-2 h-4 w-4" />
+                            Login as User (Speculate)
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>

@@ -2,8 +2,8 @@
 SELECT EXISTS(SELECT 1 FROM users WHERE email=$1 OR username=$2);
 
 -- name: CreateUser :exec
-INSERT INTO users (name, email, username, mobile, password_hash, role)
-VALUES ($1, $2, $3, $4, $5, 'user');
+INSERT INTO users (name, email, username, mobile, password_hash, role, currency)
+VALUES ($1, $2, $3, $4, $5, 'user', 'INR');
 
 -- name: GetUserForLogin :one
 SELECT id, password_hash, role 
@@ -18,7 +18,7 @@ SELECT
     u.email, 
     COALESCE(u.mobile, '')::text as mobile, 
     u.role, 
-    COALESCE(u.currency, 'USD')::text as currency,
+    COALESCE(u.currency, 'INR')::text as currency,
     u.created_at, 
     COALESCE(u.password_hash, '')::text as password_hash,
     COALESCE(w.balance, 0)::int as balance,
@@ -48,8 +48,8 @@ SELECT id, role FROM users WHERE email=$1 OR google_id=$2;
 UPDATE users SET google_id=$1, avatar_url=$2 WHERE id=$3;
 
 -- name: CreateGoogleUser :one
-INSERT INTO users (name, email, google_id, avatar_url, role, username)
-VALUES ($1, $2, $3, $4, 'user', $5)
+INSERT INTO users (name, email, google_id, avatar_url, role, username, currency)
+VALUES ($1, $2, $3, $4, 'user', $5, 'INR')
 RETURNING id, role;
 
 -- name: GetPasswordHash :one

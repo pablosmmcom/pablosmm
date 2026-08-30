@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"pablosmm/backend/internal/db/sqlc"
 )
@@ -335,4 +336,63 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	// Or just return success
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+// ImpersonateUser generates a valid user authentication session for admin speculation/investigation
+func (h *Handler) ImpersonateUser(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	uRow, err := h.db.Queries.GetUserAdmin(context.Background(), int32(id))
+	if err != nil {
+		log.Printf("Error fetching user for impersonation: %v", err)
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Generate JWT for the target user
+	expirationTime := time.Now().Add(24 * time.Hour)
+	claims := &Claims{
+		UserID: int(uRow.ID),
+		Role:   uRow.Role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		http.Error(w, "Server error generating session", http.StatusInternalServerError)
+		return
+	}
+
+	// Set auth_token cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    tokenString,
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
+		HttpOnly: false,
+		Expires:  expirationTime,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"token": tokenString,
+		"user": map[string]interface{}{
+			"id":       uRow.ID,
+			"name":     uRow.Name.String,
+			"email":    uRow.Email.String,
+			"username": uRow.Username,
+			"role":     uRow.Role,
+			"currency": uRow.Currency,
+			"balance":  float64(uRow.Balance) / 100.0,
+		},
+		"impersonated": true,
+	})
 }

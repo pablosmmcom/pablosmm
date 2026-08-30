@@ -13,7 +13,7 @@ import (
 
 const getUserAdmin = `-- name: GetUserAdmin :one
 SELECT 
-	u.id, u.name, COALESCE(u.username, '')::text as username, u.email, COALESCE(u.mobile, '')::text as mobile, u.role, COALESCE(u.currency, 'USD')::text as currency, u.created_at,
+	u.id, u.name, COALESCE(u.username, '')::text as username, u.email, COALESCE(u.mobile, '')::text as mobile, u.role, COALESCE(u.currency, 'INR')::text as currency, u.created_at,
 	COALESCE(w.balance, 0)::int as balance,
 	(SELECT COUNT(*)::int FROM orders o WHERE o.user_id = u.id) as order_count,
 	(SELECT COALESCE(SUM(
@@ -174,7 +174,7 @@ func (q *Queries) GetUserTransactionsAdmin(ctx context.Context, userID pgtype.In
 
 const getUsers = `-- name: GetUsers :many
 SELECT 
-	u.id, u.name, COALESCE(u.username, '')::text as username, u.email, COALESCE(u.mobile, '')::text as mobile, u.role, COALESCE(u.currency, 'USD')::text as currency, u.created_at,
+	u.id, u.name, COALESCE(u.username, '')::text as username, u.email, COALESCE(u.mobile, '')::text as mobile, u.role, COALESCE(u.currency, 'INR')::text as currency, u.created_at,
 	COALESCE(w.balance, 0)::int as balance,
 	(SELECT COUNT(*)::int FROM orders o WHERE o.user_id = u.id) as order_count,
 	(SELECT COALESCE(SUM(

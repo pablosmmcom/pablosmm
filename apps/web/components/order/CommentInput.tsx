@@ -17,7 +17,18 @@ const CommentInput: React.FC<CommentInputProps> = ({
 }) => {
     const [inputValue, setInputValue] = useState("");
     const [view, setView] = useState<'chat' | 'bulk'>('chat');
+    const [bulkText, setBulkText] = useState(comments.join('\n'));
+    const isInternalBulkChange = useRef(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+
+    // Sync bulkText only when comments change externally (e.g. initial load, chat view adds, smart fill)
+    useEffect(() => {
+        if (isInternalBulkChange.current) {
+            isInternalBulkChange.current = false;
+            return;
+        }
+        setBulkText(comments.join('\n'));
+    }, [comments]);
 
     // Sync scroll to bottom in chat view
     useEffect(() => {
@@ -47,7 +58,10 @@ const CommentInput: React.FC<CommentInputProps> = ({
     };
 
     const handleBulkChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const lines = e.target.value.split('\n').filter(l => l.trim() !== "");
+        const val = e.target.value;
+        isInternalBulkChange.current = true;
+        setBulkText(val);
+        const lines = val.split('\n').map(l => l.trim()).filter(l => l !== "");
         setComments(lines);
     };
 
@@ -59,6 +73,7 @@ const CommentInput: React.FC<CommentInputProps> = ({
             newComments = [...newComments, ...comments].slice(0, targetQuantity);
         }
         setComments(newComments);
+        setBulkText(newComments.join('\n'));
         lightImpact();
     };
 
@@ -74,13 +89,18 @@ const CommentInput: React.FC<CommentInputProps> = ({
                 <div className="view-toggle">
                     <button
                         className={view === 'chat' ? 'active' : ''}
-                        onClick={() => setView('chat')}
+                        onClick={() => {
+                            setView('chat');
+                        }}
                     >
                         Chat
                     </button>
                     <button
                         className={view === 'bulk' ? 'active' : ''}
-                        onClick={() => setView('bulk')}
+                        onClick={() => {
+                            setView('bulk');
+                            setBulkText(comments.join('\n'));
+                        }}
                     >
                         Bulk
                     </button>
@@ -105,8 +125,9 @@ const CommentInput: React.FC<CommentInputProps> = ({
                     <textarea
                         className="bulk-textarea"
                         placeholder="One comment per line..."
-                        value={comments.join('\n')}
+                        value={bulkText}
                         onChange={handleBulkChange}
+                        onKeyDown={(e) => e.stopPropagation()}
                     />
                 )}
             </div>

@@ -37,7 +37,7 @@ export default function Page() {
         email: user.email || '',
         username: user.username || '',
         phone: user.mobile || '',
-        currency: user.currency || 'USD',
+        currency: user.currency || 'INR',
       });
     }
   }, [user]);
