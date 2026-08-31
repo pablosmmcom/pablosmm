@@ -20,6 +20,7 @@ export type AdminUser = {
     id: number;
     name: string;
     email: string;
+    mobile?: string;
     role: string;
     balance: number;
     orderCount: number;
@@ -71,12 +72,22 @@ export const getColumns = (onAction: (action: string, user: AdminUser) => void):
     {
         accessorKey: "email",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Contact" />,
-        cell: ({ row }) => (
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <Mail className="h-3 w-3 opacity-70" />
-                {row.original.email}
-            </div>
-        ),
+        cell: ({ row }) => {
+            const user = row.original;
+            return (
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <Mail className="h-3 w-3 opacity-70" />
+                        {user.email}
+                    </div>
+                    {user.mobile && (
+                        <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600">
+                            <span>💬 {user.mobile}</span>
+                        </div>
+                    )}
+                </div>
+            );
+        },
     },
     {
         accessorKey: "role",

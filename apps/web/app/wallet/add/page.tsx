@@ -97,9 +97,12 @@ export default function WalletAddPage() {
     }
   };
 
+  const [submittedUtr, setSubmittedUtr] = useState("");
+
   const submitDeposit = async (utrFromChild?: string) => {
     if (!method || !rawAmount) return;
     const transactionId = utrFromChild || utr || "Paid";
+    setSubmittedUtr(transactionId);
     setIsSubmitting(true);
     try {
       let res: Response;
@@ -136,16 +139,9 @@ export default function WalletAddPage() {
 
       const data = await res.json();
       
-      if (data.status === 'approved') {
-        setAutoVerified(true);
-        setStep('success');
-        toast.success("Payment verified automatically!");
-        setTimeout(() => router.push('/wallet?r=' + Date.now()), 2500);
-      } else {
-        setStep('success');
-        toast.success("Deposit request submitted!");
-        setTimeout(() => router.push('/wallet?r=' + Date.now()), 2500);
-      }
+      setStep('success');
+      toast.success("Deposit request submitted for review!");
+      setTimeout(() => router.push('/wallet?r=' + Date.now()), 3000);
     } catch (error: any) {
       console.error(error);
       toast.error(error.message);
@@ -183,7 +179,7 @@ export default function WalletAddPage() {
         </button>
       )}
 
-      {/* STEP 1: AMOUNT - RESTORED ORIGINAL STRUCTURE */}
+      {/* STEP 1: AMOUNT */}
       {step === 'amount' && (
         <>
           <div className="header">
@@ -246,11 +242,10 @@ export default function WalletAddPage() {
           isSubmitting={isSubmitting}
           onClose={() => setStep('method')}
           onSubmit={submitDeposit}
-          autoVerified={autoVerified}
         />
       )}
 
-      {/* STEP 3b: PAY (USDT) — Same as before */}
+      {/* STEP 3b: PAY (USDT) */}
       {step === 'pay' && method === 'USDT' && (
         <div className="step-container" style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.95)', backdropFilter: 'blur(10px)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px' }}>
           <button onClick={() => setStep('method')} style={{ position: 'absolute', top: '16px', left: '16px', background: 'none', border: 'none', color: '#888' }}><ArrowLeft size={24} /></button>
@@ -301,17 +296,21 @@ export default function WalletAddPage() {
           <div style={{ width: '80px', height: '80px', background: 'rgba(34, 197, 94, 0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
             <CheckCircle className="text-green-500" size={40} color="#22c55e" />
           </div>
-          <h2 style={{ fontSize: '1.5rem', fontFamily: 'GB', marginBottom: '8px' }}>
-            {autoVerified ? "Payment Verified! ✅" : "Request Submitted"}
+          <h2 style={{ fontSize: '1.5rem', fontFamily: 'GB', marginBottom: '8px', color: '#fff' }}>
+            Request Submitted!
           </h2>
-          <p style={{ color: '#888', maxWidth: '280px', marginBottom: '32px', lineHeight: '1.5' }}>
-            {autoVerified ? (
-              <>Your deposit of <strong>{currencySymbol}{formattedAmount}</strong> has been verified and added to your wallet.</>
-            ) : (
-              <>Your deposit of <strong>{currencySymbol}{formattedAmount}</strong> is under review. Your wallet will be credited within 1-2 minutes.</>
-            )}
+          <p style={{ color: '#aaa', maxWidth: '300px', marginBottom: '8px', lineHeight: '1.5', fontSize: '0.9rem' }}>
+            Your deposit request of <strong style={{ color: '#fff' }}>{currencySymbol}{formattedAmount}</strong> has been submitted.
           </p>
-          <Link href="/wallet" style={{ background: '#222', color: '#fff', padding: '16px 32px', borderRadius: '100px', textDecoration: 'none', fontFamily: 'GB' }}>
+          {submittedUtr && (
+            <p style={{ color: '#777', fontSize: '0.78rem', fontFamily: 'monospace', marginBottom: '24px', background: '#111', padding: '6px 14px', borderRadius: '8px', border: '1px solid #222' }}>
+              UTR: {submittedUtr}
+            </p>
+          )}
+          <p style={{ color: '#888', fontSize: '0.82rem', maxWidth: '280px', marginBottom: '32px' }}>
+            Your wallet balance will be credited shortly after admin verification.
+          </p>
+          <Link href="/wallet" style={{ background: '#222', border: '1px solid #333', color: '#fff', padding: '14px 32px', borderRadius: '100px', textDecoration: 'none', fontFamily: 'GB', fontSize: '0.95rem' }}>
             Back to Wallet
           </Link>
         </div>

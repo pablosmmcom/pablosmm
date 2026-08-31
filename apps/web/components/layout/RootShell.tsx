@@ -5,6 +5,7 @@ import HeaderSwitch from '@/components/layout/HeaderSwitch';
 import BottomSheet from '@/components/modal/BottomSheet';
 import CurrencyStrip from '@/components/layout/CurrencyStrip';
 import FloatingWhatsApp from '@/components/layout/FloatingWhatsApp';
+import WhatsAppPromptModal from '@/components/modal/WhatsAppPromptModal';
 
 export default function RootShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || '/';
@@ -23,6 +24,7 @@ export default function RootShell({ children }: { children: React.ReactNode }) {
       </div>
       <BottomSheet />
       <FloatingWhatsApp />
+      <WhatsAppPromptModal />
     </>
   );
 }
