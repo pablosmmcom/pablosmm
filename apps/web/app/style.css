@@ -1687,6 +1687,34 @@ h6 {
   height: 28px;
   display: block;
 }
+.root .wallet-page .methods-container .wallet-bonus-pill {
+  width: 100%;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px dashed rgba(34, 197, 94, 0.4);
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-top: 12px;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.root .wallet-page .methods-container .wallet-bonus-pill .bonus-tag {
+  background: #22c55e;
+  color: #000;
+  font-family: GB;
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  letter-spacing: 0.4px;
+}
+.root .wallet-page .methods-container .wallet-bonus-pill .bonus-info {
+  font-size: 0.72rem;
+  color: #525252;
+  font-family: GM;
+  line-height: 1.3;
+}
 .root .wallet-page .methods-container button {
   font-family: GB;
   font-size: 1.08rem;
@@ -1826,11 +1854,15 @@ h6 {
 .root .wallet-add-page {
   position: relative;
   min-height: 100%;
-  padding: 24px 16px 32px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 16px 16px calc(130px + env(safe-area-inset-bottom, 36px));
   color: #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   /* dark surface with subtle vertical lines */
   background: #0d0d0e;
   background-image: repeating-linear-gradient(to right, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 64px);
@@ -1852,17 +1884,17 @@ h6 {
   opacity: 0.9;
 }
 .root .wallet-add-page .header {
-  margin-top: 40px;
+  margin-top: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
 }
 .root .wallet-add-page .header .avatar {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  padding: 6px;
+  padding: 5px;
   background: #121212;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   display: grid;
@@ -1885,7 +1917,7 @@ h6 {
 .root .wallet-add-page .header .subtitle {
   letter-spacing: 2.16px;
   color: #b4b4b4;
-  margin: 12px 0 0;
+  margin: 6px 0 0;
   font-family: GSB;
   font-size: 0.52rem;
 }
@@ -1893,15 +1925,15 @@ h6 {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 28px 0 16px;
+  margin: 16px 0 12px;
 }
 .root .wallet-add-page .amount-display .rupee {
-  font-size: 3rem;
+  font-size: 2.75rem;
   line-height: 1;
 }
 .root .wallet-add-page .amount-display .amount {
   font-family: GB;
-  font-size: 3rem;
+  font-size: 2.75rem;
   line-height: 1;
 }
 .root .wallet-add-page .amount-display .caret {
@@ -1915,19 +1947,111 @@ h6 {
   animation: blink 1s steps(1) infinite;
   opacity: 1;
 }
+.root .wallet-add-page .amount-info-badge {
+  width: calc(100% - 32px);
+  max-width: 560px;
+  margin: 0 0 10px;
+  display: flex;
+  justify-content: center;
+}
+.root .wallet-add-page .amount-info-badge .info-pill {
+  width: 100%;
+  padding: 8px 14px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  font-family: GM;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+.root .wallet-add-page .amount-info-badge .info-pill .pill-icon {
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+.root .wallet-add-page .amount-info-badge .info-pill strong {
+  font-family: GB;
+}
+.root .wallet-add-page .amount-info-badge .info-pill.bonus-idle {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e4e4e7;
+}
+.root .wallet-add-page .amount-info-badge .info-pill.alert-min {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+.root .wallet-add-page .amount-info-badge .info-pill.tip-bonus {
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  color: #facc15;
+}
+.root .wallet-add-page .amount-info-badge .info-pill.active-bonus {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #4ade80;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.15);
+}
+.root .wallet-add-page .preset-chips {
+  display: flex;
+  gap: 8px;
+  width: calc(100% - 32px);
+  max-width: 560px;
+  margin-bottom: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.root .wallet-add-page .preset-chips .chip-btn {
+  background: #18181b;
+  border: 1px solid #27272a;
+  color: #e4e4e7;
+  padding: 5px 12px;
+  border-radius: 100px;
+  font-size: 0.74rem;
+  font-family: GB;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+.root .wallet-add-page .preset-chips .chip-btn:hover {
+  background: #27272a;
+  border-color: #3f3f46;
+}
+.root .wallet-add-page .preset-chips .chip-btn.selected {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+}
+.root .wallet-add-page .preset-chips .chip-btn.chip-bonus {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.08);
+  color: #4ade80;
+}
+.root .wallet-add-page .preset-chips .chip-btn.chip-bonus:hover {
+  background: rgba(34, 197, 94, 0.18);
+}
+.root .wallet-add-page .preset-chips .chip-btn.chip-bonus.selected {
+  background: #22c55e;
+  color: #000;
+}
 .root .wallet-add-page .proceed {
   width: calc(100% - 32px);
   max-width: 560px;
-  height: 56px;
-  margin: 4px 0 16px;
+  height: 50px;
+  margin: 2px 0 10px;
   border-radius: 10px;
   border: none;
   background: #bdbdbd;
   color: #222;
   font-family: GB;
-  font-size: 1.08rem;
+  font-size: 1rem;
   letter-spacing: 0.6px;
-  box-shadow: 0 8px 0 #5a5a5a;
+  box-shadow: 0 6px 0 #5a5a5a;
   align-self: stretch;
   margin-left: 16px;
   margin-right: 16px;
@@ -1943,7 +2067,7 @@ h6 {
   gap: 1px;
   width: 100%;
   max-width: 560px;
-  margin-top: 12px;
+  margin-top: 4px;
   padding: 0 16px;
   display: grid;
 }
@@ -1953,9 +2077,9 @@ h6 {
   background: #f3f3f3;
   border: 1px solid #cfcfcf;
   place-items: center;
-  height: 56px;
+  height: 50px;
   font-family: GB;
-  font-size: 1.42rem;
+  font-size: 1.35rem;
   display: grid;
 }
 .root .wallet-add-page .keypad .spacer {
@@ -3087,9 +3211,13 @@ body:has(.bottom-slider.visible) .bottom-navigation {
 }
 .root:has(.wallet-add-page) {
   height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
-body:has(.wallet-add-page) .bottom-navigation {
-  display: none;
+body:has(.wallet-add-page) .bottom-navigation,
+body:has(.wallet-add-page) .floating-whatsapp-container {
+  display: none !important;
 }
 /* When on order(s) pages hide controls, remove nav padding and brighten background */
 .root:has(.orders-page) .navigation {

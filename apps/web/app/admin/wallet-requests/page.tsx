@@ -109,7 +109,14 @@ export default function WalletRequestsPage() {
                                         {new Date(req.created_at).toLocaleString()}
                                     </TableCell>
                                     <TableCell>{req.user_email}</TableCell>
-                                    <TableCell className="font-mono font-bold">₹{req.amount.toFixed(2)}</TableCell>
+                                    <TableCell className="font-mono font-bold">
+                                        ₹{req.amount.toFixed(2)}
+                                        {req.amount >= 100 && (
+                                            <span className="ml-1.5 inline-flex items-center text-[10px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
+                                                +10% Bonus (₹{(req.amount * 1.1).toFixed(0)})
+                                            </span>
+                                        )}
+                                    </TableCell>
                                     <TableCell>
                                         <Badge variant="outline">{req.method}</Badge>
                                     </TableCell>

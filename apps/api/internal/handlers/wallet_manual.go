@@ -45,8 +45,10 @@ func (h *Handler) RequestDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Amount <= 0 {
-		http.Error(w, "Invalid amount", http.StatusBadRequest)
+	if req.Amount < 50 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Minimum deposit amount is ₹50"})
 		return
 	}
 
@@ -200,8 +202,15 @@ func (h *Handler) UpdateDepositUTR(w http.ResponseWriter, r *http.Request) {
 						ID:            int32(req.RequestID),
 					})
 
-					// Credit wallet
-					amountCents := int(reqAmtFloat.Float64 * 100)
+					// Credit wallet (with 10% bonus if >= 100)
+					creditedAmount := reqAmtFloat.Float64
+					desc := "UPI Deposit (Auto-Verified)"
+					if creditedAmount >= 100 {
+						bonus := creditedAmount * 0.10
+						creditedAmount += bonus
+						desc = fmt.Sprintf("UPI Deposit (Auto-Verified + 10%% Bonus ₹%.2f)", bonus)
+					}
+					amountCents := int(math.Round(creditedAmount * 100))
 					qtx.UpsertWalletBalance(context.Background(), sqlc.UpsertWalletBalanceParams{
 						UserID:  int32(userID),
 						Balance: int32(amountCents),
@@ -210,9 +219,9 @@ func (h *Handler) UpdateDepositUTR(w http.ResponseWriter, r *http.Request) {
 					// Log transaction
 					qtx.InsertTransaction(context.Background(), sqlc.InsertTransactionParams{
 						UserID:      pgtype.Int4{Int32: int32(userID), Valid: true},
-						Amount:      func() pgtype.Numeric { n := pgtype.Numeric{}; n.Scan(fmt.Sprintf("%f", reqAmtFloat.Float64)); return n }(),
+						Amount:      func() pgtype.Numeric { n := pgtype.Numeric{}; n.Scan(fmt.Sprintf("%f", creditedAmount)); return n }(),
 						Type:        "credit",
-						Description: pgtype.Text{String: "UPI Deposit (Auto-Verified)", Valid: true},
+						Description: pgtype.Text{String: desc, Valid: true},
 					})
 
 					// Update notification status
@@ -355,8 +364,15 @@ func (h *Handler) AutoVerifyDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5c. Credit user wallet (amount is the ORIGINAL requested amount, not unique amount)
-	amountCents := int(reqAmount.Float64 * 100)
+	// 5c. Credit user wallet (with 10% bonus if >= 100)
+	creditedAmount := reqAmount.Float64
+	desc := "UPI Deposit (Auto-Verified)"
+	if creditedAmount >= 100 {
+		bonus := creditedAmount * 0.10
+		creditedAmount += bonus
+		desc = fmt.Sprintf("UPI Deposit (Auto-Verified + 10%% Bonus ₹%.2f)", bonus)
+	}
+	amountCents := int(math.Round(creditedAmount * 100))
 	err = qtx.UpsertWalletBalance(ctx, sqlc.UpsertWalletBalanceParams{
 		UserID:  int32(userID),
 		Balance: int32(amountCents),
@@ -370,9 +386,9 @@ func (h *Handler) AutoVerifyDeposit(w http.ResponseWriter, r *http.Request) {
 	// 5d. Log transaction
 	err = qtx.InsertTransaction(ctx, sqlc.InsertTransactionParams{
 		UserID:      pgtype.Int4{Int32: int32(userID), Valid: true},
-		Amount:      func() pgtype.Numeric { n := pgtype.Numeric{}; n.Scan(fmt.Sprintf("%f", reqAmount.Float64)); return n }(),
+		Amount:      func() pgtype.Numeric { n := pgtype.Numeric{}; n.Scan(fmt.Sprintf("%f", creditedAmount)); return n }(),
 		Type:        "credit",
-		Description: pgtype.Text{String: "UPI Deposit (Auto-Verified)", Valid: true},
+		Description: pgtype.Text{String: desc, Valid: true},
 	})
 	if err != nil {
 		log.Printf("[UPI-NOTIFY] Failed to log transaction: %v", err)
@@ -473,8 +489,17 @@ func (h *Handler) ApproveWalletRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Update User Balance (Upsert into wallets table)
-	amountCents := int(amount * 100)
+	// 3. Calculate 10% bonus if amount >= 100
+	creditedAmount := amount
+	desc := "Manual Deposit Approved"
+	if amount >= 100 {
+		bonus := amount * 0.10
+		creditedAmount = amount + bonus
+		desc = fmt.Sprintf("Manual Deposit Approved (₹%.0f + 10%% Bonus ₹%.2f)", amount, bonus)
+	}
+
+	// 4. Update User Balance (Upsert into wallets table)
+	amountCents := int(math.Round(creditedAmount * 100))
 	err = qtx.UpsertWalletBalance(ctx, sqlc.UpsertWalletBalanceParams{
 		UserID:  int32(userID),
 		Balance: int32(amountCents),
@@ -486,12 +511,12 @@ func (h *Handler) ApproveWalletRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Insert Transaction Log
+	// 5. Insert Transaction Log
 	err = qtx.InsertTransaction(ctx, sqlc.InsertTransactionParams{
 		UserID:      pgtype.Int4{Int32: int32(userID), Valid: true},
-		Amount:      func() pgtype.Numeric { n := pgtype.Numeric{}; n.Scan(fmt.Sprintf("%f", amount)); return n }(),
+		Amount:      func() pgtype.Numeric { n := pgtype.Numeric{}; n.Scan(fmt.Sprintf("%f", creditedAmount)); return n }(),
 		Type:        "credit",
-		Description: pgtype.Text{String: "Manual Deposit Approved", Valid: true},
+		Description: pgtype.Text{String: desc, Valid: true},
 	})
 	if err != nil {
 		http.Error(w, "Failed to log transaction", http.StatusInternalServerError)

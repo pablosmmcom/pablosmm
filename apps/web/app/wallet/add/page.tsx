@@ -47,6 +47,15 @@ export default function WalletAddPage() {
 
 
 
+  const numAmount = Number(rawAmount) || 0;
+  const isBelowMin = rawAmount !== "" && numAmount < 50;
+  const hasBonus = numAmount >= 100;
+  const bonusAmount = hasBonus ? Math.round(numAmount * 0.1) : 0;
+
+  const setPreset = (val: number) => {
+    setRawAmount(String(val));
+  };
+
   const handleKeyPress = (d: string) => {
     if (rawAmount.length >= 7) return;
     if (rawAmount === "0") return setRawAmount(d);
@@ -56,6 +65,11 @@ export default function WalletAddPage() {
   const handleBackspace = () => setRawAmount((s) => s.slice(0, -1));
 
   const handleMethodSelect = async (selectedMethod: 'UPI' | 'USDT') => {
+    if (numAmount < 50) {
+      toast.error("Minimum deposit amount is ₹50");
+      return;
+    }
+
     setMethod(selectedMethod);
 
     if (selectedMethod === 'UPI') {
@@ -200,12 +214,64 @@ export default function WalletAddPage() {
             <span className={`caret ${rawAmount ? "show" : ""}`} />
           </div>
 
+          {/* Dynamic Bonus & Minimum Deposit Info Banner */}
+          <div className="amount-info-badge">
+            {numAmount === 0 && (
+              <div className="info-pill bonus-idle">
+                <span className="pill-icon">🎁</span>
+                <span><strong>10% Signup Bonus</strong> on ₹100+ • Min. deposit ₹50</span>
+              </div>
+            )}
+            {isBelowMin && (
+              <div className="info-pill alert-min">
+                <span className="pill-icon">⚠️</span>
+                <span>Minimum deposit amount is <strong>₹50</strong></span>
+              </div>
+            )}
+            {numAmount >= 50 && numAmount < 100 && (
+              <div className="info-pill tip-bonus">
+                <span className="pill-icon">💡</span>
+                <span>Add <strong>₹{100 - numAmount}</strong> more for <strong>10% bonus (+₹10)</strong>!</span>
+              </div>
+            )}
+            {hasBonus && (
+              <div className="info-pill active-bonus">
+                <span className="pill-icon">🎉</span>
+                <span><strong>10% Bonus Applied!</strong> +₹{bonusAmount} Extra (Get <strong>₹{numAmount + bonusAmount}</strong>)</span>
+              </div>
+            )}
+          </div>
+
+          {/* Preset Chips */}
+          <div className="preset-chips">
+            {[50, 100, 200, 500].map((val) => (
+              <button
+                key={val}
+                type="button"
+                className={`chip-btn ${val >= 100 ? 'chip-bonus' : ''} ${numAmount === val ? 'selected' : ''}`}
+                onClick={() => setPreset(val)}
+              >
+                ₹{val} {val === 100 ? '🔥 (+10%)' : ''}
+              </button>
+            ))}
+          </div>
+
           <button
             className="proceed"
-            disabled={!rawAmount || Number(rawAmount) <= 0}
-            onClick={() => setStep('method')}
+            disabled={!rawAmount || numAmount < 50}
+            onClick={() => {
+              if (numAmount < 50) {
+                toast.error("Minimum deposit amount is ₹50");
+                return;
+              }
+              setStep('method');
+            }}
           >
-            Proceed to add money <span className="arrow">→</span>
+            {isBelowMin ? (
+              "Min. deposit ₹50"
+            ) : (
+              <>Proceed to add money <span className="arrow">→</span></>
+            )}
           </button>
 
           <div className="keypad">

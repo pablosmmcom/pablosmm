@@ -8,6 +8,11 @@ import { usePathname } from "next/navigation";
 export default function FloatingWhatsApp() {
   const { user } = useAuth();
   const pathname = usePathname() || "";
+
+  if (pathname.startsWith("/wallet/add")) {
+    return null;
+  }
+
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);

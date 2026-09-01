@@ -148,6 +148,10 @@ export default function Page() {
             height={40}
           />
         </div>
+        <div className="wallet-bonus-pill">
+          <span className="bonus-tag">🎁 10% BONUS</span>
+          <span className="bonus-info">Get 10% signup bonus on ₹100+ deposits • Min. deposit ₹50</span>
+        </div>
         <Link href="/wallet/add" style={{ width: '100%' }}><button>Add Money</button></Link>
       </div>
       {transactions.length > 0 && (
